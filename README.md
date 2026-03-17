@@ -1,6 +1,6 @@
 # local-deploy
 
-A distributed iOS build and deployment system built on .NET 9. It automates building iOS apps via [EAS CLI](https://docs.expo.dev/eas/) and submitting them to TestFlight, coordinated through a central API server and one or more remote build agents.
+A distributed mobile app build and deployment system built on .NET 9. It automates building apps via [EAS CLI](https://docs.expo.dev/eas/) and submitting them to the appropriate store (e.g. TestFlight for iOS), coordinated through a central API server and one or more remote build agents.
 
 ## How It Works
 
@@ -15,14 +15,14 @@ Deploy-Server  ──────  Redis job queue
   ▼
 Deploy-Agent
   ├── eas build --local ...
-  ├── eas submit --platform ios ...
+  ├── eas submit --platform {platform} ...
   └── POST /api/agent/status  (running → completed/failed)
 ```
 
 1. An admin POSTs a build job to the server with a build profile and platform.
 2. The server enqueues the job in Redis.
 3. A deploy-agent polls the server, dequeues the job, and runs `eas build --local`.
-4. If the build produces an `.ipa`, the agent submits it to TestFlight via `eas submit`.
+4. If the build produces an artifact (`.ipa` for iOS), the agent submits it via `eas submit` using the job's platform.
 5. The agent continuously pushes logs and final status back to the server.
 6. The admin can query job status and agent health via the REST API.
 

@@ -56,9 +56,10 @@ public class EasBuildRunner
         return new BuildResult(result.Success, result.Logs, artifactPath, result.Error);
     }
 
-    public async Task<BuildResult> SubmitAsync(string artifactPath, CancellationToken ct = default)
+    public async Task<BuildResult> SubmitAsync(string artifactPath, BuildPlatform platform, CancellationToken ct = default)
     {
-        var args = $"submit --platform ios --path \"{artifactPath}\" --non-interactive";
+        var platformArg = platform.ToString().ToLowerInvariant();
+        var args = $"submit --platform {platformArg} --path \"{artifactPath}\" --non-interactive";
         _logger.LogInformation("Running: eas {Args}", args);
 
         var result = await RunProcessAsync("eas", args, _settings.ProjectPath, ct);

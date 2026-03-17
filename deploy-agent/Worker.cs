@@ -110,7 +110,7 @@ public class Worker : BackgroundService
         if (buildResult.ArtifactPath is not null && buildResult.ArtifactPath.EndsWith(".ipa"))
         {
             _logger.LogInformation("Submitting to TestFlight: {Path}", buildResult.ArtifactPath);
-            var submitResult = await _runner.SubmitAsync(buildResult.ArtifactPath, ct);
+            var submitResult = await _runner.SubmitAsync(buildResult.ArtifactPath, job.Platform, ct);
 
             if (!submitResult.Success)
             {
