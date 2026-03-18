@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Deploy Admin</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
@@ -25,6 +25,8 @@
     -webkit-tap-highlight-color: transparent;
     overflow-x: hidden;
     padding-bottom: 60px;
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
 
   /* Tabs */
@@ -33,6 +35,9 @@
     display: flex; background: var(--secondary-bg);
     border-top: 1px solid rgba(128,128,128,0.15);
     z-index: 100;
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
   .tab {
     flex: 1; padding: 10px 0 8px; text-align: center;
@@ -44,13 +49,13 @@
   .tab svg { width: 22px; height: 22px; fill: currentColor; }
 
   /* Pages */
-  .page { display: none; padding: 16px; min-height: 100vh; }
+  .page { display: none; padding: 16px; padding-top: calc(16px + env(safe-area-inset-top)); min-height: 100vh; }
   .page.active { display: block; }
   .page-title { font-size: 20px; font-weight: 700; margin-bottom: 16px; padding-right: 40px; }
 
   /* Settings button */
   .settings-btn {
-    position: fixed; top: 14px; right: 14px;
+    position: fixed; top: calc(14px + env(safe-area-inset-top)); right: calc(14px + env(safe-area-inset-right));
     width: 36px; height: 36px; z-index: 200;
     background: var(--secondary-bg); border: none;
     border-radius: 50%; cursor: pointer;
@@ -321,7 +326,7 @@ function showPage(name) {
   if (tab) tab.classList.add('active');
   const isSetup = name === 'setup';
   document.querySelector('.tabs').style.display = isSetup ? 'none' : 'flex';
-  document.body.style.paddingBottom = isSetup ? '0' : '60px';
+  document.body.style.paddingBottom = isSetup ? '0' : 'calc(60px + env(safe-area-inset-bottom))';
   const settingsBtn = document.getElementById('settings-btn');
   settingsBtn.classList.toggle('hidden', isSetup);
   settingsBtn.classList.toggle('active', name === 'settings');
