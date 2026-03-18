@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Deploy Admin</title>
+<script>
+;(function () {
+    var src = '//cdn.jsdelivr.net/npm/eruda';
+    if (!/eruda=true/.test(window.location) && localStorage.getItem('active-eruda') != 'true') return;
+    document.write('<scr' + 'ipt src="' + src + '"></scr' + 'ipt>');
+    document.write('<scr' + 'ipt>eruda.init();</scr' + 'ipt>');
+})();
+</script>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root {
@@ -338,6 +346,8 @@ function switchTab(name) {
   clearInterval(refreshTimer);
   activeStreams.forEach(ac => ac.abort());
   activeStreams.clear();
+  durationTimers.forEach(id => clearInterval(id));
+  durationTimers.clear();
   showPage(name);
   if (name === 'jobs') {
     loadJobs();
@@ -347,6 +357,30 @@ function switchTab(name) {
   } else if (name === 'settings') {
     document.getElementById('settings-url').value = API_URL;
     document.getElementById('settings-key').value = API_KEY;
+  }
+}
+
+// ─── Duration timers ───
+const durationTimers = new Map(); // jobId → intervalId
+
+function startDurationTimer(jobId, startedAt) {
+  if (durationTimers.has(jobId)) return;
+  const start = new Date(startedAt).getTime();
+  const tick = () => {
+    const dur = fmtDuration(Date.now() - start);
+    const metaSpan = document.querySelector(`.card[data-job-id="${jobId}"] .build-time`);
+    if (metaSpan) metaSpan.textContent = dur;
+    const detailSpan = document.getElementById('duration-' + jobId);
+    if (detailSpan) detailSpan.textContent = dur;
+  };
+  tick();
+  durationTimers.set(jobId, setInterval(tick, 1000));
+}
+
+function stopDurationTimer(jobId) {
+  if (durationTimers.has(jobId)) {
+    clearInterval(durationTimers.get(jobId));
+    durationTimers.delete(jobId);
   }
 }
 
@@ -407,6 +441,7 @@ async function loadJobs() {
       const id = card.dataset.jobId;
       if (!jobIds.has(id)) {
         if (activeStreams.has(id)) { activeStreams.get(id).abort(); activeStreams.delete(id); }
+        stopDurationTimer(id);
         card.remove();
       }
     });
@@ -426,8 +461,12 @@ async function loadJobs() {
           const meta = card.querySelector('.card-meta');
           if (meta) {
             const time = j.startedAt ? relTime(j.startedAt) : relTime(j.createdAt);
-            meta.innerHTML = `${j.platform} &middot; ${time}`;
+            const dur = buildTime(j);
+            const durHtml = dur ? ` &middot; <span class="build-time">${dur}</span>` : '';
+            meta.innerHTML = `${j.platform} &middot; ${time}${durHtml}`;
           }
+          if (j.status === 'running' && j.startedAt) startDurationTimer(j.jobId, j.startedAt);
+          else stopDurationTimer(j.jobId);
         } else {
           // Replace non-expanded card fully
           card.outerHTML = jobCard(j);
@@ -446,6 +485,10 @@ async function loadJobs() {
           el.prepend(card);
         }
       }
+      // Manage duration timers
+      if (j.status === 'running' && j.startedAt) startDurationTimer(j.jobId, j.startedAt);
+      else stopDurationTimer(j.jobId);
+
       prevCard = card;
     }
   } catch (e) {
@@ -455,6 +498,8 @@ async function loadJobs() {
 
 function jobCard(j) {
   const time = j.startedAt ? relTime(j.startedAt) : relTime(j.createdAt);
+  const dur = buildTime(j);
+  const durHtml = dur ? ` &middot; <span class="build-time">${dur}</span>` : '';
   const cancelBtn = j.status === 'pending'
     ? `<button class="btn btn-cancel" onclick="event.stopPropagation();cancelJob('${j.jobId}')">Cancel</button>`
     : '';
@@ -464,7 +509,7 @@ function jobCard(j) {
         <span class="card-profile">${esc(j.profile)}</span>
         <span class="badge badge-${j.status}">${j.status}</span>
       </div>
-      <div class="card-meta">${j.platform} &middot; ${time}</div>
+      <div class="card-meta">${j.platform} &middot; ${time}${durHtml}</div>
       <div class="card-details" id="detail-${j.jobId}">
         <div class="loading"><span class="spinner"></span></div>
       </div>
@@ -475,6 +520,7 @@ function jobCard(j) {
 async function toggleCard(el, jobId) {
   if (el.classList.contains('expanded')) {
     el.classList.remove('expanded');
+    stopDurationTimer(jobId);
     if (activeStreams.has(jobId)) {
       activeStreams.get(jobId).abort();
       activeStreams.delete(jobId);
@@ -496,6 +542,10 @@ async function toggleCard(el, jobId) {
   let html = `<div class="card-meta">Created: ${fmt(j.createdAt)}</div>`;
   if (j.startedAt) html += `<div class="card-meta">Started: ${fmt(j.startedAt)}</div>`;
   if (j.completedAt) html += `<div class="card-meta">Completed: ${fmt(j.completedAt)}</div>`;
+  if (j.startedAt) {
+    const dur = buildTime(j);
+    html += `<div class="card-meta">Duration: <span id="duration-${jobId}">${dur}</span></div>`;
+  }
   if (j.error) html += `<div class="error-msg" style="text-align:left;padding:8px 0">${esc(j.error)}</div>`;
   if (j.artifactPath) html += `<div class="card-meta">Artifact: ${esc(j.artifactPath)}</div>`;
   html += `<div class="logs" id="logs-${jobId}">${esc(j.logs || '')}</div>`;
@@ -503,6 +553,8 @@ async function toggleCard(el, jobId) {
 
   const TERMINAL = ['completed', 'failed', 'cancelled'];
   if (TERMINAL.includes(j.status)) return;
+
+  if (j.startedAt) startDurationTimer(jobId, j.startedAt);
 
   const ac = new AbortController();
   activeStreams.set(jobId, ac);
@@ -522,6 +574,8 @@ async function toggleCard(el, jobId) {
               badge.className = `badge badge-${event.status}`;
               badge.textContent = event.status;
             }
+            const terminal = ['completed', 'failed', 'cancelled'];
+            if (terminal.includes(event.status)) stopDurationTimer(jobId);
           }
         },
         ac.signal
@@ -655,6 +709,23 @@ function esc(s) {
 function fmt(iso) {
   if (!iso) return '';
   return new Date(iso).toLocaleString();
+}
+
+function fmtDuration(ms) {
+  const s = Math.floor(ms / 1000);
+  if (s < 0) return '0s';
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${m}m ${sec}s`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+function buildTime(j) {
+  if (!j.startedAt) return '';
+  if (j.completedAt) return fmtDuration(new Date(j.completedAt) - new Date(j.startedAt));
+  return fmtDuration(Date.now() - new Date(j.startedAt).getTime());
 }
 
 function relTime(iso) {
