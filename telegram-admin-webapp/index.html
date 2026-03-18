@@ -260,6 +260,9 @@ function showPage(name) {
   const tab = document.getElementById('tab-' + name);
   if (page) page.classList.add('active');
   if (tab) tab.classList.add('active');
+  const isSetup = name === 'setup';
+  document.querySelector('.tabs').style.display = isSetup ? 'none' : 'flex';
+  document.body.style.paddingBottom = isSetup ? '0' : '60px';
 }
 
 function switchTab(name) {
