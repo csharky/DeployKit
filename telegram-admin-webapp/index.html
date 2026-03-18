@@ -46,7 +46,21 @@
   /* Pages */
   .page { display: none; padding: 16px; min-height: 100vh; }
   .page.active { display: block; }
-  .page-title { font-size: 20px; font-weight: 700; margin-bottom: 16px; }
+  .page-title { font-size: 20px; font-weight: 700; margin-bottom: 16px; padding-right: 40px; }
+
+  /* Settings button */
+  .settings-btn {
+    position: fixed; top: 14px; right: 14px;
+    width: 36px; height: 36px; z-index: 200;
+    background: var(--secondary-bg); border: none;
+    border-radius: 50%; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--hint); transition: color 0.2s;
+  }
+  .settings-btn:active { opacity: 0.7; }
+  .settings-btn.active { color: var(--link); }
+  .settings-btn svg { width: 20px; height: 20px; fill: currentColor; }
+  .settings-btn.hidden { display: none; }
 
   /* Job card */
   .card {
@@ -213,6 +227,11 @@
   <button class="btn" id="submit-btn" onclick="createJob()">Create Job</button>
 </div>
 
+<!-- Settings icon top-right -->
+<button class="settings-btn hidden" id="settings-btn" onclick="switchTab('settings')">
+  <svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 000-1.88l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96a7.04 7.04 0 00-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87a.48.48 0 00.12.61l2.03 1.58a7.07 7.07 0 000 1.88l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.49.37 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.57 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 00-.12-.61l-2.03-1.58zM12 15.5A3.5 3.5 0 1115.5 12 3.5 3.5 0 0112 15.5z"/></svg>
+</button>
+
 <!-- Tab bar -->
 <div class="tabs">
   <div class="tab active" onclick="switchTab('jobs')" id="tab-jobs">
@@ -226,10 +245,6 @@
   <div class="tab" onclick="switchTab('new')" id="tab-new">
     <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
     New
-  </div>
-  <div class="tab" onclick="switchTab('settings')" id="tab-settings">
-    <svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 000-1.88l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96a7.04 7.04 0 00-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87a.48.48 0 00.12.61l2.03 1.58a7.07 7.07 0 000 1.88l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.49.37 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.57 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 00-.12-.61l-2.03-1.58zM12 15.5A3.5 3.5 0 1115.5 12 3.5 3.5 0 0112 15.5z"/></svg>
-    Settings
   </div>
 </div>
 
@@ -307,6 +322,9 @@ function showPage(name) {
   const isSetup = name === 'setup';
   document.querySelector('.tabs').style.display = isSetup ? 'none' : 'flex';
   document.body.style.paddingBottom = isSetup ? '0' : '60px';
+  const settingsBtn = document.getElementById('settings-btn');
+  settingsBtn.classList.toggle('hidden', isSetup);
+  settingsBtn.classList.toggle('active', name === 'settings');
 }
 
 function switchTab(name) {
