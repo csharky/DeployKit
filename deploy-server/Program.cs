@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using PrepForge.DeployServer;
 using Scalar.AspNetCore;
@@ -92,6 +93,58 @@ admin.MapDelete("/{jobId}", async (string jobId, DeploymentService service) =>
     return cancelled ? Results.Ok(new { message = "Job cancelled" }) : Results.NotFound();
 });
 
+// Admin: stream job log deltas via SSE
+admin.MapGet("/{jobId}/stream", async (string jobId, HttpContext ctx, DeploymentService service, CancellationToken ct) =>
+{
+    ctx.Response.Headers["Content-Type"] = "text/event-stream";
+    ctx.Response.Headers["Cache-Control"] = "no-cache";
+    ctx.Response.Headers["X-Accel-Buffering"] = "no";
+
+    async Task Send(object payload)
+    {
+        var line = $"data: {JsonSerializer.Serialize(payload)}\n\n";
+        await ctx.Response.WriteAsync(line, ct);
+        await ctx.Response.Body.FlushAsync(ct);
+    }
+
+    var job = await service.GetJobAsync(jobId);
+    if (job is null) { await Send(new { type = "error", message = "not found" }); return; }
+
+    int cursor = 0;
+    string lastStatus = job.Status;
+
+    try
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            job = await service.GetJobAsync(jobId);
+            if (job is null) break;
+
+            var logs = job.Logs ?? "";
+            if (logs.Length > cursor)
+            {
+                await Send(new { type = "log_delta", content = logs[cursor..] });
+                cursor = logs.Length;
+            }
+
+            if (job.Status != lastStatus)
+            {
+                await Send(new { type = "status", status = job.Status, completedAt = job.CompletedAt });
+                lastStatus = job.Status;
+            }
+
+            if (job.Status is "completed" or "failed" or "cancelled")
+            {
+                await Send(new { type = "done" });
+                break;
+            }
+
+            await Task.Delay(2000, ct);
+        }
+    }
+    catch (OperationCanceledException) { /* client disconnected */ }
+});
+
 // Admin: get status of all known agents
 app.MapGet("/api/agents", async (DeploymentService service) =>
 {
@@ -145,6 +198,37 @@ app.MapGet("/api/agent/{agentId}/logs", async (string agentId, int? lines, Deplo
     var allLines = await service.GetAgentLogsAsync(agentId);
     var result = lines.HasValue ? allLines.TakeLast(lines.Value).ToArray() : allLines;
     return Results.Ok(new { agentId, lines = result });
+}).RequireAuthorization("AdminPolicy");
+
+// Admin: stream agent log lines via SSE
+app.MapGet("/api/agent/{agentId}/logs/stream", async (string agentId, int? from, HttpContext ctx, DeploymentService service, CancellationToken ct) =>
+{
+    ctx.Response.Headers["Content-Type"] = "text/event-stream";
+    ctx.Response.Headers["Cache-Control"] = "no-cache";
+    ctx.Response.Headers["X-Accel-Buffering"] = "no";
+
+    async Task Send(object payload)
+    {
+        var line = $"data: {JsonSerializer.Serialize(payload)}\n\n";
+        await ctx.Response.WriteAsync(line, ct);
+        await ctx.Response.Body.FlushAsync(ct);
+    }
+
+    int cursor = from ?? 0;
+    try
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            var lines = await service.GetAgentLogsAsync(agentId);
+            if (lines.Length > cursor)
+            {
+                await Send(new { type = "lines", lines = lines[cursor..] });
+                cursor = lines.Length;
+            }
+            await Task.Delay(3000, ct);
+        }
+    }
+    catch (OperationCanceledException) { /* client disconnected */ }
 }).RequireAuthorization("AdminPolicy");
 
 app.Run();

@@ -334,6 +334,8 @@ function showPage(name) {
 
 function switchTab(name) {
   clearInterval(refreshTimer);
+  activeStreams.forEach(ac => ac.abort());
+  activeStreams.clear();
   showPage(name);
   if (name === 'jobs') {
     loadJobs();
@@ -343,6 +345,32 @@ function switchTab(name) {
   } else if (name === 'settings') {
     document.getElementById('settings-url').value = API_URL;
     document.getElementById('settings-key').value = API_KEY;
+  }
+}
+
+// ─── Streaming ───
+const activeStreams = new Map(); // key: jobId or 'agent:{agentId}' → AbortController
+
+async function consumeSseStream(url, onEvent, signal) {
+  const res = await fetch(url, { headers: { 'X-API-Key': API_KEY }, signal });
+  if (!res.ok) throw new Error(`Stream ${res.status}`);
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let boundary;
+    while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      for (const line of block.split('\n')) {
+        if (line.startsWith('data: ')) {
+          try { onEvent(JSON.parse(line.slice(6))); } catch (_) {}
+        }
+      }
+    }
   }
 }
 
@@ -362,6 +390,8 @@ async function api(method, path, body) {
 // ─── Jobs ───
 async function loadJobs() {
   const el = document.getElementById('jobs-list');
+  // Cancel any open job streams before re-rendering cards
+  activeStreams.forEach((ac, key) => { if (!key.startsWith('agent:')) ac.abort(); });
   try {
     const jobs = await api('GET', '/api/jobs');
     if (!jobs || jobs.length === 0) {
@@ -396,21 +426,65 @@ function jobCard(j) {
 async function toggleCard(el, jobId) {
   if (el.classList.contains('expanded')) {
     el.classList.remove('expanded');
+    if (activeStreams.has(jobId)) {
+      activeStreams.get(jobId).abort();
+      activeStreams.delete(jobId);
+    }
     return;
   }
   el.classList.add('expanded');
+  const detailEl = document.getElementById('detail-' + jobId);
+  detailEl.innerHTML = '<div class="loading"><span class="spinner"></span></div>';
+
+  let j;
   try {
-    const j = await api('GET', `/api/jobs/${jobId}`);
-    let html = `<div class="card-meta">Created: ${fmt(j.createdAt)}</div>`;
-    if (j.startedAt) html += `<div class="card-meta">Started: ${fmt(j.startedAt)}</div>`;
-    if (j.completedAt) html += `<div class="card-meta">Completed: ${fmt(j.completedAt)}</div>`;
-    if (j.error) html += `<div class="error-msg" style="text-align:left;padding:8px 0">${esc(j.error)}</div>`;
-    if (j.artifactPath) html += `<div class="card-meta">Artifact: ${esc(j.artifactPath)}</div>`;
-    if (j.logs) html += `<div class="logs">${esc(j.logs)}</div>`;
-    document.getElementById('detail-' + jobId).innerHTML = html;
+    j = await api('GET', `/api/jobs/${jobId}`);
   } catch (e) {
-    document.getElementById('detail-' + jobId).innerHTML = `<div class="error-msg">${e.message}</div>`;
+    detailEl.innerHTML = `<div class="error-msg">${e.message}</div>`;
+    return;
   }
+
+  let html = `<div class="card-meta">Created: ${fmt(j.createdAt)}</div>`;
+  if (j.startedAt) html += `<div class="card-meta">Started: ${fmt(j.startedAt)}</div>`;
+  if (j.completedAt) html += `<div class="card-meta">Completed: ${fmt(j.completedAt)}</div>`;
+  if (j.error) html += `<div class="error-msg" style="text-align:left;padding:8px 0">${esc(j.error)}</div>`;
+  if (j.artifactPath) html += `<div class="card-meta">Artifact: ${esc(j.artifactPath)}</div>`;
+  html += `<div class="logs" id="logs-${jobId}">${esc(j.logs || '')}</div>`;
+  detailEl.innerHTML = html;
+
+  const TERMINAL = ['completed', 'failed', 'cancelled'];
+  if (TERMINAL.includes(j.status)) return;
+
+  const ac = new AbortController();
+  activeStreams.set(jobId, ac);
+  const logsEl = document.getElementById('logs-' + jobId);
+
+  (async () => {
+    try {
+      await consumeSseStream(
+        `${API_URL}/api/jobs/${jobId}/stream`,
+        (event) => {
+          if (event.type === 'log_delta') {
+            logsEl.textContent += event.content;
+            logsEl.scrollTop = logsEl.scrollHeight;
+          } else if (event.type === 'status') {
+            const badge = el.querySelector('.badge');
+            if (badge) {
+              badge.className = `badge badge-${event.status}`;
+              badge.textContent = event.status;
+            }
+          }
+        },
+        ac.signal
+      );
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        logsEl.textContent += '\n[stream error: ' + e.message + ']';
+      }
+    } finally {
+      activeStreams.delete(jobId);
+    }
+  })();
 }
 
 async function cancelJob(jobId) {
@@ -449,23 +523,53 @@ async function loadAgents() {
 }
 
 async function toggleAgentLogs(el, agentId) {
+  const streamKey = 'agent:' + agentId;
   if (el.classList.contains('expanded')) {
     el.classList.remove('expanded');
+    if (activeStreams.has(streamKey)) {
+      activeStreams.get(streamKey).abort();
+      activeStreams.delete(streamKey);
+    }
     return;
   }
   el.classList.add('expanded');
   const detail = el.querySelector('.card-details');
+
+  let initialLines = [];
   try {
     const res = await api('GET', `/api/agent/${agentId}/logs?lines=100`);
-    const logs = res && res.lines;
-    if (logs && logs.length > 0) {
-      detail.innerHTML = `<div class="logs">${esc(logs.join('\n'))}</div>`;
-    } else {
-      detail.innerHTML = '<div class="card-meta">No recent logs</div>';
-    }
+    initialLines = (res && res.lines) || [];
   } catch (e) {
     detail.innerHTML = `<div class="error-msg">${e.message}</div>`;
+    return;
   }
+
+  detail.innerHTML = `<div class="logs" id="agent-logs-${agentId}">${esc(initialLines.join('\n'))}</div>`;
+  const logsEl = document.getElementById('agent-logs-' + agentId);
+
+  const ac = new AbortController();
+  activeStreams.set(streamKey, ac);
+
+  (async () => {
+    try {
+      await consumeSseStream(
+        `${API_URL}/api/agent/${agentId}/logs/stream?from=${initialLines.length}`,
+        (event) => {
+          if (event.type === 'lines' && event.lines.length > 0) {
+            logsEl.textContent += (logsEl.textContent ? '\n' : '') + event.lines.join('\n');
+            logsEl.scrollTop = logsEl.scrollHeight;
+          }
+        },
+        ac.signal
+      );
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        logsEl.textContent += '\n[stream error: ' + e.message + ']';
+      }
+    } finally {
+      activeStreams.delete(streamKey);
+    }
+  })();
 }
 
 // ─── Create Job ───
