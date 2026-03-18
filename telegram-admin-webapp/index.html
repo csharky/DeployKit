@@ -157,7 +157,7 @@
 </head>
 <body>
 
-<!-- Settings (shown if no config) -->
+<!-- Setup (shown on first launch) -->
 <div id="setup-page" class="page">
   <div class="page-title">Setup</div>
   <div class="form-group">
@@ -169,6 +169,20 @@
     <input class="form-input" id="cfg-key" type="password" placeholder="your-admin-api-key">
   </div>
   <button class="btn" onclick="saveConfig()">Connect</button>
+</div>
+
+<!-- Settings page (accessible via tab) -->
+<div id="settings-page" class="page">
+  <div class="page-title">Settings</div>
+  <div class="form-group">
+    <label class="form-label">Server URL</label>
+    <input class="form-input" id="settings-url" placeholder="https://your-server.up.railway.app">
+  </div>
+  <div class="form-group">
+    <label class="form-label">Admin API Key</label>
+    <input class="form-input" id="settings-key" type="password" placeholder="your-admin-api-key">
+  </div>
+  <button class="btn" onclick="saveSettings()">Save</button>
 </div>
 
 <!-- Jobs page -->
@@ -213,28 +227,48 @@
     <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
     New
   </div>
+  <div class="tab" onclick="switchTab('settings')" id="tab-settings">
+    <svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 000-1.88l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96a7.04 7.04 0 00-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87a.48.48 0 00.12.61l2.03 1.58a7.07 7.07 0 000 1.88l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.49.37 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.57 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 00-.12-.61l-2.03-1.58zM12 15.5A3.5 3.5 0 1115.5 12 3.5 3.5 0 0112 15.5z"/></svg>
+    Settings
+  </div>
 </div>
 
 <script>
 // ─── Config ───
-let API_URL = localStorage.getItem('deploy_url') || '';
-let API_KEY = localStorage.getItem('deploy_key') || '';
+let API_URL = '';
+let API_KEY = '';
 let refreshTimer = null;
 
+// ─── Storage: Telegram CloudStorage with localStorage fallback ───
+const cloud = window.Telegram && Telegram.WebApp && Telegram.WebApp.CloudStorage;
+
+function storageGet(keys) {
+  return new Promise(resolve => {
+    if (cloud) {
+      cloud.getItems(keys, (err, values) => resolve(err ? {} : values));
+    } else {
+      const result = {};
+      keys.forEach(k => result[k] = localStorage.getItem(k) || '');
+      resolve(result);
+    }
+  });
+}
+
+function storageSet(key, value) {
+  if (cloud) cloud.setItem(key, value);
+  localStorage.setItem(key, value);
+}
+
 // ─── Init ───
-(function init() {
+(async function init() {
   if (window.Telegram && Telegram.WebApp) {
     Telegram.WebApp.ready();
     Telegram.WebApp.expand();
   }
 
-  // Check URL hash for config: #url=...&key=...
-  const hash = location.hash.slice(1);
-  if (hash) {
-    const p = new URLSearchParams(hash);
-    if (p.get('url')) { API_URL = p.get('url'); localStorage.setItem('deploy_url', API_URL); }
-    if (p.get('key')) { API_KEY = p.get('key'); localStorage.setItem('deploy_key', API_KEY); }
-  }
+  const stored = await storageGet(['deploy_url', 'deploy_key']);
+  API_URL = stored.deploy_url || '';
+  API_KEY = stored.deploy_key || '';
 
   if (!API_URL || !API_KEY) {
     showPage('setup');
@@ -247,8 +281,18 @@ function saveConfig() {
   API_URL = document.getElementById('cfg-url').value.replace(/\/+$/, '');
   API_KEY = document.getElementById('cfg-key').value;
   if (!API_URL || !API_KEY) return;
-  localStorage.setItem('deploy_url', API_URL);
-  localStorage.setItem('deploy_key', API_KEY);
+  storageSet('deploy_url', API_URL);
+  storageSet('deploy_key', API_KEY);
+  switchTab('jobs');
+}
+
+function saveSettings() {
+  API_URL = document.getElementById('settings-url').value.replace(/\/+$/, '');
+  API_KEY = document.getElementById('settings-key').value;
+  if (!API_URL || !API_KEY) return;
+  storageSet('deploy_url', API_URL);
+  storageSet('deploy_key', API_KEY);
+  haptic('success');
   switchTab('jobs');
 }
 
@@ -273,6 +317,9 @@ function switchTab(name) {
     refreshTimer = setInterval(loadJobs, 15000);
   } else if (name === 'agents') {
     loadAgents();
+  } else if (name === 'settings') {
+    document.getElementById('settings-url').value = API_URL;
+    document.getElementById('settings-key').value = API_KEY;
   }
 }
 
