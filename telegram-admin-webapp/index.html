@@ -392,15 +392,62 @@ async function api(method, path, body) {
 // ─── Jobs ───
 async function loadJobs() {
   const el = document.getElementById('jobs-list');
-  // Cancel any open job streams before re-rendering cards
-  activeStreams.forEach((ac, key) => { if (!key.startsWith('agent:')) ac.abort(); });
   try {
     const jobs = await api('GET', '/api/jobs');
     if (!jobs || jobs.length === 0) {
+      activeStreams.forEach((ac, key) => { if (!key.startsWith('agent:')) ac.abort(); });
       el.innerHTML = '<div class="empty">No jobs yet</div>';
       return;
     }
-    el.innerHTML = jobs.map(j => jobCard(j)).join('');
+
+    const jobIds = new Set(jobs.map(j => j.jobId));
+
+    // Remove cards no longer in the list
+    el.querySelectorAll('.card[data-job-id]').forEach(card => {
+      const id = card.dataset.jobId;
+      if (!jobIds.has(id)) {
+        if (activeStreams.has(id)) { activeStreams.get(id).abort(); activeStreams.delete(id); }
+        card.remove();
+      }
+    });
+
+    // Also remove any non-card placeholder (e.g. "No jobs yet" or error)
+    el.querySelectorAll('.empty, .error-msg').forEach(node => node.remove());
+
+    // Update or insert cards in order
+    let prevCard = null;
+    for (const j of jobs) {
+      let card = el.querySelector(`.card[data-job-id="${j.jobId}"]`);
+      if (card) {
+        if (card.classList.contains('expanded')) {
+          // Preserve expanded card — only update badge + meta
+          const badge = card.querySelector('.badge');
+          if (badge) { badge.className = `badge badge-${j.status}`; badge.textContent = j.status; }
+          const meta = card.querySelector('.card-meta');
+          if (meta) {
+            const time = j.startedAt ? relTime(j.startedAt) : relTime(j.createdAt);
+            meta.innerHTML = `${j.platform} &middot; ${time}`;
+          }
+        } else {
+          // Replace non-expanded card fully
+          card.outerHTML = jobCard(j);
+          card = el.querySelector(`.card[data-job-id="${j.jobId}"]`);
+        }
+      } else {
+        // Insert new card
+        const tmp = document.createElement('div');
+        tmp.innerHTML = jobCard(j);
+        card = tmp.firstElementChild;
+        if (prevCard && prevCard.nextSibling) {
+          el.insertBefore(card, prevCard.nextSibling);
+        } else if (prevCard) {
+          el.appendChild(card);
+        } else {
+          el.prepend(card);
+        }
+      }
+      prevCard = card;
+    }
   } catch (e) {
     el.innerHTML = `<div class="error-msg">${e.message}</div>`;
   }
@@ -412,7 +459,7 @@ function jobCard(j) {
     ? `<button class="btn btn-cancel" onclick="event.stopPropagation();cancelJob('${j.jobId}')">Cancel</button>`
     : '';
   return `
-    <div class="card" onclick="toggleCard(this, '${j.jobId}')">
+    <div class="card" data-job-id="${j.jobId}" onclick="toggleCard(this, '${j.jobId}')">
       <div class="card-header">
         <span class="card-profile">${esc(j.profile)}</span>
         <span class="badge badge-${j.status}">${j.status}</span>
