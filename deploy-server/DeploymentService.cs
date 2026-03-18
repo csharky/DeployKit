@@ -6,6 +6,7 @@ namespace PrepForge.DeployServer;
 public class DeploymentService
 {
     private const string QueueKey = "deploy:queue";
+    private const string RunningKey = "deploy:running";
     private const string HistoryKey = "deploy:history";
     private const int MaxHistory = 20;
     private static readonly TimeSpan JobTtl = TimeSpan.FromDays(7);
@@ -60,6 +61,7 @@ public class DeploymentService
         };
 
         await SaveJobAsync(updated);
+        await _redis.SetAddAsync(RunningKey, updated.JobId);
         _logger.LogInformation("Dequeued job {JobId}", updated.JobId);
         return updated;
     }
@@ -81,8 +83,9 @@ public class DeploymentService
 
         await SaveJobAsync(updated);
 
-        if (status is "completed" or "failed")
+        if (status is "completed" or "failed" or "cancelled")
         {
+            await _redis.SetRemoveAsync(RunningKey, jobId);
             await _redis.ListLeftPushAsync(HistoryKey, jobId);
             await _redis.ListTrimAsync(HistoryKey, 0, MaxHistory - 1);
         }
@@ -110,6 +113,15 @@ public class DeploymentService
         {
             var job = await GetJobAsync(id.ToString());
             if (job is not null)
+                jobs.Add(job);
+        }
+
+        // Get running jobs
+        var runningIds = await _redis.SetMembersAsync(RunningKey);
+        foreach (var id in runningIds)
+        {
+            var job = await GetJobAsync(id.ToString());
+            if (job is not null && jobs.All(j => j.JobId != job.JobId))
                 jobs.Add(job);
         }
 

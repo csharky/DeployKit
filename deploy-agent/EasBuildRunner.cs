@@ -10,13 +10,16 @@ public class EasBuildRunner
 {
     private readonly DeployAgentSettings _settings;
     private readonly ILogger<EasBuildRunner> _logger;
-    private const int MaxLogLines = 200;
+    private const int MaxLogLines = 1000;
+    private Action<string>? _onLogLine;
 
     public EasBuildRunner(IOptions<DeployAgentSettings> settings, ILogger<EasBuildRunner> logger)
     {
         _settings = settings.Value;
         _logger = logger;
     }
+
+    public void SetLogCallback(Action<string>? callback) => _onLogLine = callback;
 
     public async Task<BuildResult> BuildAsync(string profile, BuildPlatform platform, CancellationToken ct = default)
     {
@@ -28,6 +31,12 @@ public class EasBuildRunner
             File.Delete(file);
         foreach (var file in Directory.GetFiles(outputDir, "*.tar.gz"))
             File.Delete(file);
+
+        // Install dependencies before building
+        _logger.LogInformation("Installing npm dependencies...");
+        var installResult = await RunProcessAsync("npm", "install", _settings.ProjectPath, ct);
+        if (!installResult.Success)
+            return new BuildResult(false, installResult.Logs, null, $"npm install failed: {installResult.Error}");
 
         var platformArg = platform.ToString().ToLowerInvariant();
         var args = $"build --local --profile {profile} --platform {platformArg} --non-interactive --output {outputDir}";
@@ -53,7 +62,8 @@ public class EasBuildRunner
                 _logger.LogWarning("Build succeeded but no artifact found in {Dir}", outputDir);
         }
 
-        return new BuildResult(result.Success, result.Logs, artifactPath, result.Error);
+        var combinedLogs = installResult.Logs + "\n--- EAS BUILD ---\n" + result.Logs;
+        return new BuildResult(result.Success, combinedLogs, artifactPath, result.Error);
     }
 
     public async Task<BuildResult> SubmitAsync(string artifactPath, BuildPlatform platform, CancellationToken ct = default)
@@ -86,15 +96,15 @@ public class EasBuildRunner
             };
 
             // Inherit PATH so eas/node/xcode are available
-            psi.Environment["PATH"] = Environment.GetEnvironmentVariable("PATH") ?? "/usr/local/bin:/usr/bin:/bin";
+            psi.Environment["PATH"] = Environment.GetEnvironmentVariable("PATH") ?? "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin";
 
             using var process = Process.Start(psi);
             if (process is null)
                 return (false, "", "Failed to start process");
 
             // Read stdout and stderr concurrently
-            var stdoutTask = ReadStreamAsync(process.StandardOutput, logLines, ct);
-            var stderrTask = ReadStreamAsync(process.StandardError, logLines, ct);
+            var stdoutTask = ReadStreamAsync(process.StandardOutput, logLines, "stdout", ct);
+            var stderrTask = ReadStreamAsync(process.StandardError, logLines, "stderr", ct);
 
             await Task.WhenAll(stdoutTask, stderrTask);
             await process.WaitForExitAsync(ct);
@@ -117,16 +127,19 @@ public class EasBuildRunner
         }
     }
 
-    private static async Task ReadStreamAsync(StreamReader reader, LinkedList<string> logLines, CancellationToken ct)
+    private async Task ReadStreamAsync(StreamReader reader, LinkedList<string> logLines,
+        string prefix, CancellationToken ct)
     {
         while (await reader.ReadLineAsync(ct) is { } line)
         {
+            _logger.LogInformation("[{Prefix}] {Line}", prefix, line);
             lock (logLines)
             {
                 logLines.AddLast(line);
                 if (logLines.Count > MaxLogLines)
                     logLines.RemoveFirst();
             }
+            _onLogLine?.Invoke(line);
         }
     }
 }

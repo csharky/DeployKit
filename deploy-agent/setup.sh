@@ -17,16 +17,29 @@ check_command dotnet "Install .NET 9 SDK: https://dotnet.microsoft.com/download"
 check_command node "Install Node.js: https://nodejs.org/"
 check_command eas "Install EAS CLI: npm install -g eas-cli"
 check_command xcodebuild "Install Xcode from the App Store"
+check_command fastlane "Install Fastlane: brew install fastlane"
+check_command pod "Install CocoaPods: brew install cocoapods"
 
-# Capture bin dirs for eas and xcodebuild so launchd can find them
+# Capture bin dirs so launchd can find them
 EAS_BIN_DIR="$(dirname "$(command -v eas)")"
 XCODE_BIN_DIR="$(dirname "$(command -v xcodebuild)")"
-echo "   eas bin dir:       $EAS_BIN_DIR"
+FASTLANE_BIN_DIR="$(dirname "$(command -v fastlane)")"
+POD_BIN_DIR="$(dirname "$(command -v pod)")"
+echo "   eas bin dir:        $EAS_BIN_DIR"
 echo "   xcodebuild bin dir: $XCODE_BIN_DIR"
+echo "   fastlane bin dir:   $FASTLANE_BIN_DIR"
+echo "   pod bin dir:        $POD_BIN_DIR"
 
 # Build ExtraPath (deduplicated)
-EXTRA_PATH="$EAS_BIN_DIR"
-[[ "$XCODE_BIN_DIR" != "$EAS_BIN_DIR" ]] && EXTRA_PATH="$EXTRA_PATH:$XCODE_BIN_DIR"
+add_to_path() {
+    local dir="$1"
+    [[ ":$EXTRA_PATH:" != *":$dir:"* ]] && EXTRA_PATH="${EXTRA_PATH:+$EXTRA_PATH:}$dir" || true
+}
+EXTRA_PATH=""
+add_to_path "$EAS_BIN_DIR"
+add_to_path "$XCODE_BIN_DIR"
+add_to_path "$FASTLANE_BIN_DIR"
+add_to_path "$POD_BIN_DIR"
 
 # Verify .NET version
 DOTNET_VERSION=$(dotnet --version)
@@ -96,6 +109,8 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
+    <true/>
+    <key>SessionCreate</key>
     <true/>
     <key>StandardOutPath</key>
     <string>/tmp/prepforge-deploy-agent.log</string>

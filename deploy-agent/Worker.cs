@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.Extensions.Options;
 
 namespace PrepForge.DeployAgent;
@@ -94,40 +95,89 @@ public class Worker : BackgroundService
 
         await _client.UpdateStatusAsync(job.JobId, "running", ct: ct);
 
-        // Step 1: Build
-        var buildResult = await _runner.BuildAsync(job.Profile, job.Platform, ct);
+        // Set up incremental log streaming
+        var logBuffer = new StringBuilder();
+        var logLock = new object();
 
-        if (!buildResult.Success)
+        _runner.SetLogCallback(line =>
         {
-            _logger.LogWarning("Build failed for job {JobId}: {Error}", job.JobId, buildResult.Error);
-            await _client.UpdateStatusAsync(job.JobId, "failed", buildResult.Logs, buildResult.Error, ct: ct);
-            return;
-        }
-
-        _logger.LogInformation("Build succeeded for job {JobId}", job.JobId);
-
-        // Step 2: Submit to TestFlight (if we have an IPA)
-        if (buildResult.ArtifactPath is not null && buildResult.ArtifactPath.EndsWith(".ipa"))
-        {
-            _logger.LogInformation("Submitting to TestFlight: {Path}", buildResult.ArtifactPath);
-            var submitResult = await _runner.SubmitAsync(buildResult.ArtifactPath, job.Platform, ct);
-
-            if (!submitResult.Success)
+            lock (logLock)
             {
-                _logger.LogWarning("Submit failed for job {JobId}: {Error}", job.JobId, submitResult.Error);
-                var combinedLogs = buildResult.Logs + "\n--- SUBMIT ---\n" + submitResult.Logs;
-                await _client.UpdateStatusAsync(job.JobId, "failed", combinedLogs, $"Submit failed: {submitResult.Error}", ct: ct);
+                if (logBuffer.Length > 0) logBuffer.Append('\n');
+                logBuffer.Append(line);
+            }
+        });
+
+        using var logCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var logPushTask = Task.Run(async () =>
+        {
+            try
+            {
+                while (!logCts.Token.IsCancellationRequested)
+                {
+                    await Task.Delay(5000, logCts.Token);
+                    string snapshot;
+                    lock (logLock)
+                    {
+                        snapshot = logBuffer.ToString();
+                    }
+                    if (snapshot.Length > 0)
+                    {
+                        await _client.UpdateStatusAsync(job.JobId, "running", snapshot, ct: logCts.Token);
+                    }
+                }
+            }
+            catch (OperationCanceledException) { /* expected */ }
+        }, logCts.Token);
+
+        try
+        {
+            // Step 1: Build
+            var buildResult = await _runner.BuildAsync(job.Profile, job.Platform, ct);
+
+            if (!buildResult.Success)
+            {
+                _logger.LogWarning("Build failed for job {JobId}: {Error}", job.JobId, buildResult.Error);
+                await _client.UpdateStatusAsync(job.JobId, "failed", buildResult.Logs, buildResult.Error, ct: ct);
                 return;
             }
 
-            var allLogs = buildResult.Logs + "\n--- SUBMIT ---\n" + submitResult.Logs;
-            await _client.UpdateStatusAsync(job.JobId, "completed", allLogs, artifactPath: buildResult.ArtifactPath, ct: ct);
-        }
-        else
-        {
-            await _client.UpdateStatusAsync(job.JobId, "completed", buildResult.Logs, artifactPath: buildResult.ArtifactPath, ct: ct);
-        }
+            _logger.LogInformation("Build succeeded for job {JobId}", job.JobId);
 
-        _logger.LogInformation("Job {JobId} completed successfully", job.JobId);
+            // Step 2: Submit to TestFlight (if we have an IPA)
+            if (buildResult.ArtifactPath is not null && buildResult.ArtifactPath.EndsWith(".ipa"))
+            {
+                _logger.LogInformation("Submitting to TestFlight: {Path}", buildResult.ArtifactPath);
+                lock (logLock)
+                {
+                    logBuffer.Append("\n--- SUBMIT ---\n");
+                }
+
+                var submitResult = await _runner.SubmitAsync(buildResult.ArtifactPath, job.Platform, ct);
+
+                if (!submitResult.Success)
+                {
+                    _logger.LogWarning("Submit failed for job {JobId}: {Error}", job.JobId, submitResult.Error);
+                    var combinedLogs = buildResult.Logs + "\n--- SUBMIT ---\n" + submitResult.Logs;
+                    await _client.UpdateStatusAsync(job.JobId, "failed", combinedLogs, $"Submit failed: {submitResult.Error}", ct: ct);
+                    return;
+                }
+
+                var allLogs = buildResult.Logs + "\n--- SUBMIT ---\n" + submitResult.Logs;
+                await _client.UpdateStatusAsync(job.JobId, "completed", allLogs, artifactPath: buildResult.ArtifactPath, ct: ct);
+            }
+            else
+            {
+                await _client.UpdateStatusAsync(job.JobId, "completed", buildResult.Logs, artifactPath: buildResult.ArtifactPath, ct: ct);
+            }
+
+            _logger.LogInformation("Job {JobId} completed successfully", job.JobId);
+        }
+        finally
+        {
+            logCts.Cancel();
+            _runner.SetLogCallback(null);
+            try { await logPushTask; } catch (OperationCanceledException) { }
+        }
     }
 }
