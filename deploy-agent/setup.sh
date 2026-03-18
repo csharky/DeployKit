@@ -18,6 +18,16 @@ check_command node "Install Node.js: https://nodejs.org/"
 check_command eas "Install EAS CLI: npm install -g eas-cli"
 check_command xcodebuild "Install Xcode from the App Store"
 
+# Capture bin dirs for eas and xcodebuild so launchd can find them
+EAS_BIN_DIR="$(dirname "$(command -v eas)")"
+XCODE_BIN_DIR="$(dirname "$(command -v xcodebuild)")"
+echo "   eas bin dir:       $EAS_BIN_DIR"
+echo "   xcodebuild bin dir: $XCODE_BIN_DIR"
+
+# Build ExtraPath (deduplicated)
+EXTRA_PATH="$EAS_BIN_DIR"
+[[ "$XCODE_BIN_DIR" != "$EAS_BIN_DIR" ]] && EXTRA_PATH="$EXTRA_PATH:$XCODE_BIN_DIR"
+
 # Verify .NET version
 DOTNET_VERSION=$(dotnet --version)
 echo "   .NET version: $DOTNET_VERSION"
@@ -48,7 +58,7 @@ echo ""
 echo "=== Setup Complete ==="
 echo ""
 
-echo "Configure appsettings.json with:"
+echo "Configure appsettings.Production.json with:"
 echo "  - ServerUrl: your deploy server URL on Railway"
 echo "  - AgentApiKey: the agent API key from deploy server config"
 echo "  - ProjectPath: absolute path to react/prep-forge directory"
@@ -94,7 +104,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+        <string>${EXTRA_PATH}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
 $([ -n "${DeployAgent__ServerUrl:-}" ]   && echo "        <key>DeployAgent__ServerUrl</key><string>${DeployAgent__ServerUrl}</string>")
 $([ -n "${DeployAgent__AgentApiKey:-}" ] && echo "        <key>DeployAgent__AgentApiKey</key><string>${DeployAgent__AgentApiKey}</string>")
 $([ -n "${DeployAgent__ProjectPath:-}" ] && echo "        <key>DeployAgent__ProjectPath</key><string>${DeployAgent__ProjectPath}</string>")
