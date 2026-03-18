@@ -45,12 +45,14 @@ local-deploy/
 │   ├── ApiKeyAuthHandler.cs# Custom API key authentication (Admin / Agent roles)
 │   ├── Models.cs           # Shared DTOs
 │   └── appsettings.json    # Redis connection string, API keys
-└── deploy-agent/           # .NET Worker Service — runs on the build machine
-    ├── Worker.cs           # Polling loop, job execution, log streaming
-    ├── EasBuildRunner.cs   # Invokes `eas build` and `eas submit` processes
-    ├── DeployServerClient.cs# HTTP client for server communication
-    ├── Models.cs           # Shared DTOs
-    └── appsettings.json    # Server URL, project path, agent ID, keys
+├── deploy-agent/           # .NET Worker Service — runs on the build machine
+│   ├── Worker.cs           # Polling loop, job execution, log streaming
+│   ├── EasBuildRunner.cs   # Invokes `eas build` and `eas submit` processes
+│   ├── DeployServerClient.cs# HTTP client for server communication
+│   ├── Models.cs           # Shared DTOs
+│   └── appsettings.json    # Server URL, project path, agent ID, keys
+└── telegram-admin-webapp/  # Telegram WebApp admin panel (single HTML file)
+    └── index.html          # Mobile-friendly UI for job management
 ```
 
 ## Getting Started
@@ -107,6 +109,29 @@ curl -X POST http://localhost:5100/api/jobs \
   -H "Content-Type: application/json" \
   -d '{"profile": "production", "platform": "Ios"}'
 ```
+
+## Admin WebApp
+
+A single-file Telegram WebApp for managing jobs and agents from your phone — no build step required.
+
+**Features:**
+- View all jobs with color-coded status badges (pending, running, completed, failed, cancelled)
+- Tap any job to expand logs, error messages, and timestamps
+- Cancel pending jobs
+- Monitor agent health (online/offline) and view recent agent logs
+- Create new build jobs via a simple form
+- Auto-refreshes every 15 seconds on the Jobs tab
+- Adapts to Telegram dark/light theme
+
+**Setup:**
+
+1. Host `telegram-admin-webapp/index.html` as a static file (GitHub Pages, Railway, any static host)
+2. Open the URL in a browser — enter your server URL and admin API key on first launch (saved to `localStorage`)
+3. Or pass config via URL hash to skip the setup screen:
+   ```
+   https://your-host.com/index.html#url=https://your-server.railway.app&key=your-admin-key
+   ```
+4. In BotFather, set the hosted URL as your bot's **Menu Button** or **Web App URL**
 
 ## API Reference
 
