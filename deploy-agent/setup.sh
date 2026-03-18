@@ -47,6 +47,7 @@ dotnet build -c Release
 echo ""
 echo "=== Setup Complete ==="
 echo ""
+
 echo "Configure appsettings.json with:"
 echo "  - ServerUrl: your deploy server URL on Railway"
 echo "  - AgentApiKey: the agent API key from deploy server config"
@@ -94,6 +95,9 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     <dict>
         <key>PATH</key>
         <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+$([ -n "${DeployAgent__ServerUrl:-}" ]   && echo "        <key>DeployAgent__ServerUrl</key><string>${DeployAgent__ServerUrl}</string>")
+$([ -n "${DeployAgent__AgentApiKey:-}" ] && echo "        <key>DeployAgent__AgentApiKey</key><string>${DeployAgent__AgentApiKey}</string>")
+$([ -n "${DeployAgent__ProjectPath:-}" ] && echo "        <key>DeployAgent__ProjectPath</key><string>${DeployAgent__ProjectPath}</string>")
     </dict>
 </dict>
 </plist>
