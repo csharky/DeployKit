@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace PrepForge.DeployAgent;
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
-public enum BuildPlatform { Ios }
+public enum BuildPlatform { Ios, Android }
 
 public record JobResponse(
     string JobId,
@@ -27,6 +27,7 @@ public class DeployAgentSettings
 {
     public string ServerUrl { get; set; } = string.Empty;
     public string AgentApiKey { get; set; } = string.Empty;
+    public string KeychainPassword { get; set; } = string.Empty;
     public int PollIntervalSeconds { get; set; } = 10;
     public string ProjectPath { get; set; } = string.Empty;
     public string BuildOutputPath { get; set; } = "./build-output";

@@ -2,3 +2,13 @@
 */bin/*
 */.vs/*
 */appsettings.Production.json
+.claude/*
+.vscode/*
+.idea/*
+.env
+.env.*
+.DS_Store
+Thumbs.db
+.cache/*
+.nuget/*
+.local/*

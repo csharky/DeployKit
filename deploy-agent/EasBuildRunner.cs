@@ -38,8 +38,30 @@ public class EasBuildRunner
         if (!installResult.Success)
             return new BuildResult(false, installResult.Logs, null, $"npm install failed: {installResult.Error}");
 
+        // Unlock keychain for iOS builds
+        _logger.LogInformation("Updating security...");
+        var securityResult = await RunProcessAsync("security", $"unlock-keychain -p \"{_settings.KeychainPassword}\" /Users/uliasulejmanova/Library/Keychains/login.keychain-db", _settings.ProjectPath, ct);
+        if (!securityResult.Success)
+            return new BuildResult(false, securityResult.Logs, null, $"security unlock-keychain failed: {securityResult.Error}");
+
         var platformArg = platform.ToString().ToLowerInvariant();
-        var args = $"build --local --profile {profile} --platform {platformArg} --non-interactive --output {outputDir}";
+        string args;
+        string? outputFile = null;
+
+        if (platform == BuildPlatform.Ios)
+        {
+            outputFile = Path.Combine(outputDir, $"build-{profile}-ios.ipa");
+            if (File.Exists(outputFile)) File.Delete(outputFile);
+            args = $"build --local --profile {profile} --platform ios --non-interactive --output \"{outputFile}\"";
+        }
+        else
+        {
+            // Android can produce .apk or .aab depending on profile — EAS decides, so we scan after
+            foreach (var file in Directory.GetFiles(outputDir, "*.apk").Concat(Directory.GetFiles(outputDir, "*.aab")))
+                File.Delete(file);
+            args = $"build --local --profile {profile} --platform android --non-interactive";
+        }
+
         _logger.LogInformation("Running: eas {Args}", args);
 
         var result = await RunProcessAsync("eas", args, _settings.ProjectPath, ct);
@@ -47,14 +69,18 @@ public class EasBuildRunner
         string? artifactPath = null;
         if (result.Success)
         {
-            // Find the built artifact
-            var ipaFiles = Directory.GetFiles(outputDir, "*.ipa");
-            var tarFiles = Directory.GetFiles(outputDir, "*.tar.gz");
-
-            if (ipaFiles.Length > 0)
-                artifactPath = ipaFiles[0];
-            else if (tarFiles.Length > 0)
-                artifactPath = tarFiles[0];
+            if (outputFile is not null)
+            {
+                // iOS: we know exactly where it landed
+                artifactPath = File.Exists(outputFile) ? outputFile : null;
+            }
+            else
+            {
+                // Android: find whatever EAS produced
+                artifactPath = Directory.GetFiles(outputDir, "*.apk")
+                    .Concat(Directory.GetFiles(outputDir, "*.aab"))
+                    .FirstOrDefault();
+            }
 
             if (artifactPath is not null)
                 _logger.LogInformation("Build artifact: {Path}", artifactPath);

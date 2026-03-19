@@ -75,6 +75,7 @@ echo "Configure appsettings.Production.json with:"
 echo "  - ServerUrl: your deploy server URL on Railway"
 echo "  - AgentApiKey: the agent API key from deploy server config"
 echo "  - ProjectPath: absolute path to react/prep-forge directory"
+echo "  - KeychainPassword: the password for the keychain"
 echo ""
 echo "Run manually:"
 echo "  dotnet run"
@@ -123,6 +124,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 $([ -n "${DeployAgent__ServerUrl:-}" ]   && echo "        <key>DeployAgent__ServerUrl</key><string>${DeployAgent__ServerUrl}</string>")
 $([ -n "${DeployAgent__AgentApiKey:-}" ] && echo "        <key>DeployAgent__AgentApiKey</key><string>${DeployAgent__AgentApiKey}</string>")
 $([ -n "${DeployAgent__ProjectPath:-}" ] && echo "        <key>DeployAgent__ProjectPath</key><string>${DeployAgent__ProjectPath}</string>")
+$([ -n "${DeployAgent__KeychainPassword:-}" ] && echo "        <key>DeployAgent__KeychainPassword</key><string>${DeployAgent__KeychainPassword}</string>")
     </dict>
 </dict>
 </plist>
