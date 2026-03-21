@@ -41,6 +41,7 @@ export function showPage(name) {
 
   const fab = document.getElementById('fab-new');
   fab.classList.toggle('hidden', name !== 'jobs');
+  document.getElementById('fab-gradient').classList.toggle('hidden', name !== 'jobs');
 }
 
 export function switchTab(name) {
