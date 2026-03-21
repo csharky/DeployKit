@@ -31,7 +31,7 @@ body {
   width: calc(100% - 32px); max-width: 480px;
   height: 52px;
   border-radius: 14px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 85%, transparent) 0%, transparent 100%), var(--btn);
+  background: linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 100%), var(--btn);
   color: var(--btn-text);
   border: none; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
