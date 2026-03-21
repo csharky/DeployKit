@@ -10,7 +10,9 @@ import { haptic } from './helpers.js';
   if (window.Telegram?.WebApp) {
     Telegram.WebApp.ready();
     Telegram.WebApp.expand();
-    Telegram.WebApp.requestFullscreen?.();
+    const p = Telegram.WebApp.platform;
+    const isMobile = p === 'android' || p === 'ios' || p === 'android_x';
+    if (isMobile) Telegram.WebApp.requestFullscreen?.();
   }
 
   const stored = await storageGet(['deploy_url', 'deploy_key']);
