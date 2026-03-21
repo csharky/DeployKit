@@ -23,6 +23,20 @@ body {
   padding-right: env(safe-area-inset-right);
 }
 
+/* FAB gradient overlay – fades list content under button */
+.fab-gradient {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: calc(100px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--bg) 0%, transparent 100%);
+  opacity: 0.85;
+  z-index: 99;
+  pointer-events: none;
+}
+.fab-gradient.hidden { display: none; }
+
 /* FAB */
 .fab {
   position: fixed;
@@ -31,7 +45,7 @@ body {
   width: calc(100% - 32px); max-width: 480px;
   height: 52px;
   border-radius: 14px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 100%), var(--btn);
+  background: linear-gradient(180deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 100%), var(--btn);
   color: var(--btn-text);
   border: none; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
