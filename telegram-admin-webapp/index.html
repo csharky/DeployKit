@@ -31,9 +31,41 @@
   <button class="btn" id="setup-connect-btn">Connect</button>
 </div>
 
-<!-- Settings page -->
+<!-- Settings page (menu) -->
 <div id="settings-page" class="page">
   <div class="page-title">Settings</div>
+  <div class="settings-menu">
+    <div class="settings-row" id="settings-connection-row">
+      <div class="settings-row-icon-wrap" style="background:#3390ec">
+        <svg class="settings-row-icon" viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 000-1.88l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96a7.04 7.04 0 00-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87a.48.48 0 00.12.61l2.03 1.58a7.07 7.07 0 000 1.88l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.49.37 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.57 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 00-.12-.61l-2.03-1.58zM12 15.5A3.5 3.5 0 1115.5 12 3.5 3.5 0 0112 15.5z"/></svg>
+      </div>
+      <span class="settings-row-label">Connection</span>
+      <span class="settings-row-hint" id="settings-connection-hint"></span>
+      <svg class="settings-row-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+    <div class="settings-row" id="settings-agents-row">
+      <div class="settings-row-icon-wrap" style="background:#29b36a">
+        <svg class="settings-row-icon" viewBox="0 0 24 24"><path d="M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>
+      </div>
+      <span class="settings-row-label">Agents</span>
+      <span class="settings-row-hint" id="settings-agents-hint"></span>
+      <svg class="settings-row-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+    <div class="settings-row" id="settings-profiles-row">
+      <div class="settings-row-icon-wrap" style="background:#f5a623">
+        <svg class="settings-row-icon" viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
+      </div>
+      <span class="settings-row-label">Profiles</span>
+      <span class="settings-row-hint" id="settings-profiles-hint"></span>
+      <svg class="settings-row-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+  </div>
+</div>
+
+<!-- Connection page -->
+<div id="connection-page" class="page">
+  <button class="btn-back" id="connection-back-btn">← Settings</button>
+  <div class="page-title">Connection</div>
   <div class="form-group">
     <label class="form-label">Server URL</label>
     <input class="form-input" id="settings-url" placeholder="https://your-server.up.railway.app">
@@ -53,24 +85,58 @@
 
 <!-- Agents page -->
 <div id="agents-page" class="page">
+  <button class="btn-back" id="agents-back-btn">← Settings</button>
   <div class="page-title">Agents</div>
   <div id="agents-list"></div>
 </div>
 
+<!-- Profiles page -->
+<div id="profiles-page" class="page">
+  <div id="profiles-list">
+    <button class="btn-back" id="profiles-settings-back-btn">← Settings</button>
+    <div class="page-title">Profiles</div>
+    <div id="profiles-list-items"></div>
+    <button class="btn-add-row" id="add-profile-btn">Add Profile</button>
+  </div>
+  <div id="profiles-form" style="display:none">
+    <button class="btn-back" id="profile-back-btn">← Profiles</button>
+    <div class="page-title" id="profile-form-title">New Profile</div>
+    <div class="form-group">
+      <label class="form-label">Name</label>
+      <input class="form-input" id="profile-name" placeholder="e.g. production, preview">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Working Directory</label>
+      <input class="form-input" id="profile-workdir" placeholder="e.g. /home/agent/myproject">
+    </div>
+    <div class="form-section-title">Environment Variables</div>
+    <div id="envvar-rows"></div>
+    <div class="error-msg" id="envvar-error" style="display:none"></div>
+    <button class="btn-add-row" id="add-envvar-btn">Add Variable</button>
+    <div class="form-section-title">Steps</div>
+    <textarea class="form-input steps-textarea" id="steps-textarea" rows="6"
+      placeholder="- npm install&#10;- git pull&#10;- eas build --local"></textarea>
+    <div class="profile-form-actions">
+      <button class="btn" id="profile-save-btn">Create Profile</button>
+      <button class="btn btn-cancel" id="profile-delete-btn" style="display:none">Delete Profile</button>
+    </div>
+    <div class="error-msg" id="profile-error" style="display:none"></div>
+  </div>
+</div>
+
 <!-- New Job page -->
 <div id="new-page" class="page">
+  <button class="btn-back" id="new-job-back-btn">← Jobs</button>
   <div class="page-title">New Job</div>
   <div class="form-group">
     <label class="form-label">Build Profile</label>
-    <input class="form-input" id="job-profile" placeholder="e.g. production, preview">
-  </div>
-  <div class="form-group">
-    <label class="form-label">Platform</label>
-    <select class="form-select" id="job-platform">
-      <option value="Ios">iOS</option>
+    <select class="form-select" id="job-profile-select" disabled>
+      <option value="">Loading...</option>
     </select>
+    <div id="new-job-profile-hint"></div>
   </div>
-  <button class="btn" id="submit-btn">Create Job</button>
+  <div class="error-msg" id="new-job-error" style="display:none"></div>
+  <button class="btn" id="submit-btn" disabled>Create Job</button>
 </div>
 
 <!-- Settings icon top-right -->
@@ -78,21 +144,11 @@
   <svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.07 7.07 0 000-1.88l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96a7.04 7.04 0 00-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87a.48.48 0 00.12.61l2.03 1.58a7.07 7.07 0 000 1.88l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.49.37 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.57 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 00-.12-.61l-2.03-1.58zM12 15.5A3.5 3.5 0 1115.5 12 3.5 3.5 0 0112 15.5z"/></svg>
 </button>
 
-<!-- Tab bar -->
-<div class="tabs">
-  <div class="tab active" id="tab-jobs">
-    <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 2l5 5h-5V4zM6 20V4h5v7h7v9H6z"/><path d="M8 13h8v1.5H8zm0 3h8v1.5H8z"/></svg>
-    Jobs
-  </div>
-  <div class="tab" id="tab-agents">
-    <svg viewBox="0 0 24 24"><path d="M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>
-    Agents
-  </div>
-  <div class="tab" id="tab-new">
-    <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-    New
-  </div>
-</div>
+<!-- FAB -->
+<button class="fab hidden" id="fab-new">
+  <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+  New Job
+</button>
 
 <!-- Card templates -->
 <template id="tpl-job-card">

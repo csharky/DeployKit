@@ -13,22 +13,27 @@ public class DeploymentService
 
     private readonly IDatabase _redis;
     private readonly ILogger<DeploymentService> _logger;
+    private readonly ProfileService _profileService;
 
-    public DeploymentService(IConnectionMultiplexer redis, ILogger<DeploymentService> logger)
+    public DeploymentService(IConnectionMultiplexer redis, ILogger<DeploymentService> logger, ProfileService profileService)
     {
         _redis = redis.GetDatabase();
         _logger = logger;
+        _profileService = profileService;
     }
 
-    public async Task<JobResponse> EnqueueAsync(string profile, BuildPlatform platform)
+    public async Task<JobResponse?> EnqueueAsync(string profileId)
     {
+        var profile = await _profileService.GetProfileAsync(profileId);
+        if (profile is null) return null;
+
         var jobId = Guid.NewGuid().ToString("N");
         var now = DateTime.UtcNow;
 
         var job = new JobResponse(
             JobId: jobId,
-            Profile: profile,
-            Platform: platform,
+            ProfileId: profileId,
+            ProfileSnapshot: profile,
             Status: "pending",
             CreatedAt: now,
             StartedAt: null,
@@ -39,8 +44,7 @@ public class DeploymentService
 
         await SaveJobAsync(job);
         await _redis.ListLeftPushAsync(QueueKey, jobId);
-
-        _logger.LogInformation("Enqueued job {JobId} profile={Profile} platform={Platform}", jobId, profile, platform);
+        _logger.LogInformation("Enqueued job {JobId} profileId={ProfileId}", jobId, profileId);
         return job;
     }
 
@@ -205,6 +209,29 @@ public class DeploymentService
             return [];
 
         return JsonSerializer.Deserialize<string[]>(json.ToString()) ?? [];
+    }
+
+    public async Task<bool> HasActiveJobsForProfileAsync(string profileId)
+    {
+        // Check queued jobs
+        var queuedIds = await _redis.ListRangeAsync(QueueKey);
+        foreach (var id in queuedIds)
+        {
+            var job = await GetJobAsync(id.ToString());
+            if (job is not null && job.ProfileId == profileId)
+                return true;
+        }
+
+        // Check running jobs
+        var runningIds = await _redis.SetMembersAsync(RunningKey);
+        foreach (var id in runningIds)
+        {
+            var job = await GetJobAsync(id.ToString());
+            if (job is not null && job.ProfileId == profileId)
+                return true;
+        }
+
+        return false;
     }
 
     private async Task SaveJobAsync(JobResponse job)

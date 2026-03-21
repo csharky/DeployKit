@@ -33,7 +33,9 @@ function createJobCard(j) {
   const tpl = document.getElementById('tpl-job-card');
   const card = tpl.content.cloneNode(true).firstElementChild;
   card.dataset.jobId = j.jobId;
-  card.querySelector('.card-profile').textContent = j.profile;
+  const shortId = j.jobId.slice(0, 7);
+  const profileName = j.profileSnapshot?.name || j.profileId;
+  card.querySelector('.card-profile').textContent = `${shortId} [${profileName}]`;
   card.querySelector('.card-details').id = 'detail-' + j.jobId;
   updateJobCardMeta(card, j);
   card.addEventListener('click', () => toggleCard(card, j.jobId));
@@ -59,7 +61,7 @@ function updateJobCardMeta(card, j) {
   const meta = card.querySelector('.card-meta');
   meta.innerHTML = '';
   meta.append(
-    document.createTextNode(`${j.platform} · ${time}`),
+    document.createTextNode(time),
     ...(dur ? [document.createTextNode(' · '), Object.assign(document.createElement('span'), { className: 'build-time', textContent: dur })] : [])
   );
 }

@@ -6,7 +6,7 @@ namespace PrepForge.DeployAgent;
 public class Worker : BackgroundService
 {
     private readonly DeployServerClient _client;
-    private readonly EasBuildRunner _runner;
+    private readonly StepRunner _runner;
     private readonly DeployAgentSettings _settings;
     private readonly ILogger<Worker> _logger;
     private DateTime _lastLogPush = DateTime.MinValue;
@@ -14,7 +14,7 @@ public class Worker : BackgroundService
 
     public Worker(
         DeployServerClient client,
-        EasBuildRunner runner,
+        StepRunner runner,
         IOptions<DeployAgentSettings> settings,
         ILogger<Worker> logger)
     {
@@ -90,8 +90,16 @@ public class Worker : BackgroundService
 
     private async Task ProcessJobAsync(JobResponse job, CancellationToken ct)
     {
-        _logger.LogInformation("Processing job {JobId}: profile={Profile} platform={Platform}",
-            job.JobId, job.Profile, job.Platform);
+        if (job.ProfileSnapshot is null)
+        {
+            _logger.LogWarning("Job {JobId} has no profile snapshot — cannot execute", job.JobId);
+            await _client.UpdateStatusAsync(job.JobId, "failed", null,
+                "Job has no profile snapshot — cannot execute steps", ct: ct);
+            return;
+        }
+
+        _logger.LogInformation("Processing job {JobId}: profile={Profile}",
+            job.JobId, job.ProfileSnapshot.Name);
 
         await _client.UpdateStatusAsync(job.JobId, "running", ct: ct);
 
@@ -132,45 +140,22 @@ public class Worker : BackgroundService
 
         try
         {
-            // Step 1: Build
-            var buildResult = await _runner.BuildAsync(job.Profile, job.Platform, ct);
+            var result = await _runner.RunStepsAsync(job.ProfileSnapshot, ct);
 
-            if (!buildResult.Success)
+            string logs;
+            lock (logLock)
             {
-                _logger.LogWarning("Build failed for job {JobId}: {Error}", job.JobId, buildResult.Error);
-                await _client.UpdateStatusAsync(job.JobId, "failed", buildResult.Logs, buildResult.Error, ct: ct);
+                logs = logBuffer.ToString();
+            }
+
+            if (!result.Success)
+            {
+                _logger.LogWarning("Job {JobId} failed: {Error}", job.JobId, result.Error);
+                await _client.UpdateStatusAsync(job.JobId, "failed", logs, result.Error, ct: ct);
                 return;
             }
 
-            _logger.LogInformation("Build succeeded for job {JobId}", job.JobId);
-
-            // Step 2: Submit to TestFlight (if we have an IPA)
-            if (buildResult.ArtifactPath is not null && buildResult.ArtifactPath.EndsWith(".ipa"))
-            {
-                _logger.LogInformation("Submitting to TestFlight: {Path}", buildResult.ArtifactPath);
-                lock (logLock)
-                {
-                    logBuffer.Append("\n--- SUBMIT ---\n");
-                }
-
-                var submitResult = await _runner.SubmitAsync(buildResult.ArtifactPath, job.Platform, ct);
-
-                if (!submitResult.Success)
-                {
-                    _logger.LogWarning("Submit failed for job {JobId}: {Error}", job.JobId, submitResult.Error);
-                    var combinedLogs = buildResult.Logs + "\n--- SUBMIT ---\n" + submitResult.Logs;
-                    await _client.UpdateStatusAsync(job.JobId, "failed", combinedLogs, $"Submit failed: {submitResult.Error}", ct: ct);
-                    return;
-                }
-
-                var allLogs = buildResult.Logs + "\n--- SUBMIT ---\n" + submitResult.Logs;
-                await _client.UpdateStatusAsync(job.JobId, "completed", allLogs, artifactPath: buildResult.ArtifactPath, ct: ct);
-            }
-            else
-            {
-                await _client.UpdateStatusAsync(job.JobId, "completed", buildResult.Logs, artifactPath: buildResult.ArtifactPath, ct: ct);
-            }
-
+            await _client.UpdateStatusAsync(job.JobId, "completed", logs, artifactPath: null, ct: ct);
             _logger.LogInformation("Job {JobId} completed successfully", job.JobId);
         }
         finally

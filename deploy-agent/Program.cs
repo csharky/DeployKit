@@ -7,7 +7,7 @@ builder.Logging.AddConsole(o => o.FormatterName = SimpleLogFormatter.FormatterNa
                .AddConsoleFormatter<SimpleLogFormatter, SimpleConsoleFormatterOptions>();
 
 builder.Services.Configure<DeployAgentSettings>(builder.Configuration.GetSection("DeployAgent"));
-builder.Services.AddSingleton<EasBuildRunner>();
+builder.Services.AddSingleton<StepRunner>();
 builder.Services.AddSingleton<DeployServerClient>();
 builder.Services.AddHttpClient<DeployServerClient>();
 builder.Services.AddHostedService<Worker>();

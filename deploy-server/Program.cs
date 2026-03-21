@@ -47,6 +47,7 @@ builder.Services.AddAuthorization(options =>
 
 // Services
 builder.Services.AddSingleton<DeploymentService>();
+builder.Services.AddSingleton<ProfileService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
@@ -68,10 +69,13 @@ var admin = app.MapGroup("/api/jobs")
 
 admin.MapPost("/", async (CreateJobRequest request, DeploymentService service) =>
 {
-    if (string.IsNullOrWhiteSpace(request.Profile))
-        return Results.BadRequest(new { error = "Profile is required" });
+    if (string.IsNullOrWhiteSpace(request.ProfileId))
+        return Results.BadRequest(new { error = "ProfileId is required" });
 
-    var job = await service.EnqueueAsync(request.Profile, request.Platform);
+    var job = await service.EnqueueAsync(request.ProfileId);
+    if (job is null)
+        return Results.BadRequest(new { error = "Profile not found" });
+
     return Results.Created($"/api/jobs/{job.JobId}", job);
 });
 
@@ -143,6 +147,78 @@ admin.MapGet("/{jobId}/stream", async (string jobId, HttpContext ctx, Deployment
         }
     }
     catch (OperationCanceledException) { /* client disconnected */ }
+});
+
+// Admin endpoints — profile management
+var profiles = app.MapGroup("/api/profiles")
+    .RequireAuthorization("AdminPolicy");
+
+profiles.MapPost("/", async (CreateProfileRequest req, ProfileService svc) =>
+{
+    if (string.IsNullOrWhiteSpace(req.Name))
+        return Results.BadRequest(new { error = "Name is required" });
+    if (req.Steps is null || req.Steps.Length == 0)
+        return Results.BadRequest(new { error = "Steps are required" });
+
+    var envVars = req.EnvVars ?? [];
+    var dupKey = envVars.GroupBy(v => v.Key).FirstOrDefault(g => g.Count() > 1);
+    if (dupKey is not null)
+        return Results.BadRequest(new { error = $"Duplicate env var key: {dupKey.Key}" });
+
+    if (await svc.IsNameTakenAsync(req.Name))
+        return Results.Json(new { error = "A profile with that name already exists" }, statusCode: 409);
+
+    var profile = await svc.CreateProfileAsync(
+        req.Name,
+        req.WorkingDirectory ?? string.Empty,
+        envVars,
+        req.Steps);
+    return Results.Created($"/api/profiles/{profile.Id}", ProfileService.MaskSecrets(profile));
+});
+
+profiles.MapGet("/", async (ProfileService svc) =>
+{
+    var all = await svc.ListProfilesAsync();
+    return Results.Ok(all.Select(ProfileService.MaskSecrets).ToList());
+});
+
+profiles.MapGet("/{id}", async (string id, ProfileService svc) =>
+{
+    var profile = await svc.GetProfileAsync(id);
+    if (profile is null)
+        return Results.NotFound(new { error = "Profile not found" });
+    return Results.Ok(ProfileService.MaskSecrets(profile));
+});
+
+profiles.MapPut("/{id}", async (string id, UpdateProfileRequest req, ProfileService svc) =>
+{
+    if (string.IsNullOrWhiteSpace(req.Name))
+        return Results.BadRequest(new { error = "Name is required" });
+    if (req.Steps is null || req.Steps.Length == 0)
+        return Results.BadRequest(new { error = "Steps are required" });
+
+    var dupKey = req.EnvVars.GroupBy(v => v.Key).FirstOrDefault(g => g.Count() > 1);
+    if (dupKey is not null)
+        return Results.BadRequest(new { error = $"Duplicate env var key: {dupKey.Key}" });
+
+    if (await svc.IsNameTakenAsync(req.Name, excludeId: id))
+        return Results.Json(new { error = "A profile with that name already exists" }, statusCode: 409);
+
+    var updated = await svc.UpdateProfileAsync(id, req);
+    if (updated is null)
+        return Results.NotFound(new { error = "Profile not found" });
+    return Results.Ok(ProfileService.MaskSecrets(updated));
+});
+
+profiles.MapDelete("/{id}", async (string id, ProfileService svc, DeploymentService deploySvc) =>
+{
+    if (await deploySvc.HasActiveJobsForProfileAsync(id))
+        return Results.Json(new { error = "Profile has active jobs" }, statusCode: 409);
+
+    var deleted = await svc.DeleteProfileAsync(id);
+    if (!deleted)
+        return Results.NotFound(new { error = "Profile not found" });
+    return Results.Ok(new { });
 });
 
 // Admin: get status of all known agents
@@ -232,3 +308,6 @@ app.MapGet("/api/agent/{agentId}/logs/stream", async (string agentId, int? from,
 }).RequireAuthorization("AdminPolicy");
 
 app.Run();
+
+// Make Program accessible to WebApplicationFactory in test project
+public partial class Program { }

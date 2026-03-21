@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { storageGet, storageSet } from './storage.js';
-import { switchTab, showPage } from './navigation.js';
+import { switchTab, showPage, openSettingsSection, backToSettings } from './navigation.js';
 import { api } from './api.js';
 import { haptic } from './helpers.js';
 
@@ -29,10 +29,17 @@ import { haptic } from './helpers.js';
 // ─── Event listeners ───
 
 function registerListeners() {
-  document.getElementById('tab-jobs').addEventListener('click', () => switchTab('jobs'));
-  document.getElementById('tab-agents').addEventListener('click', () => switchTab('agents'));
-  document.getElementById('tab-new').addEventListener('click', () => switchTab('new'));
+  document.getElementById('fab-new').addEventListener('click', () => switchTab('new'));
+  document.getElementById('new-job-back-btn').addEventListener('click', () => switchTab('jobs'));
   document.getElementById('settings-btn').addEventListener('click', () => switchTab('settings'));
+
+  document.getElementById('settings-connection-row').addEventListener('click', () => openSettingsSection('connection'));
+  document.getElementById('settings-agents-row').addEventListener('click', () => openSettingsSection('agents'));
+  document.getElementById('settings-profiles-row').addEventListener('click', () => openSettingsSection('profiles'));
+
+  document.getElementById('connection-back-btn').addEventListener('click', () => backToSettings());
+  document.getElementById('agents-back-btn').addEventListener('click', () => backToSettings());
+  document.getElementById('profiles-settings-back-btn').addEventListener('click', () => backToSettings());
 
   document.getElementById('setup-connect-btn').addEventListener('click', saveConfig);
   document.getElementById('settings-save-btn').addEventListener('click', saveSettings);
@@ -57,23 +64,21 @@ function saveSettings() {
   storageSet('deploy_url', state.apiUrl);
   storageSet('deploy_key', state.apiKey);
   haptic('success');
-  switchTab('jobs');
+  backToSettings();
 }
 
 // ─── Create job ───
 
 async function createJob() {
-  const profile = document.getElementById('job-profile').value.trim();
-  const platform = document.getElementById('job-platform').value;
-  if (!profile) { document.getElementById('job-profile').focus(); return; }
+  const profileId = document.getElementById('job-profile-select').value;
+  if (!profileId) { document.getElementById('job-profile-select').focus(); return; }
 
   const btn = document.getElementById('submit-btn');
   btn.disabled = true;
   btn.textContent = 'Creating...';
   try {
-    await api('POST', '/api/jobs', { profile, platform });
+    await api('POST', '/api/jobs', { profileId });
     haptic('success');
-    document.getElementById('job-profile').value = '';
     switchTab('jobs');
   } catch (e) {
     alert('Failed: ' + e.message);

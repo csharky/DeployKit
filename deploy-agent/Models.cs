@@ -1,14 +1,18 @@
-using System.Text.Json.Serialization;
-
 namespace PrepForge.DeployAgent;
 
-[JsonConverter(typeof(JsonStringEnumConverter))]
-public enum BuildPlatform { Ios, Android }
+public record EnvVar(string Key, string Value, bool IsSecret);
+
+public record ProfileSnapshot(
+    string Id,
+    string Name,
+    string WorkingDirectory,
+    EnvVar[] EnvVars,
+    string[] Steps);
 
 public record JobResponse(
     string JobId,
-    string Profile,
-    BuildPlatform Platform,
+    string ProfileId,
+    ProfileSnapshot? ProfileSnapshot,
     string Status,
     DateTime CreatedAt,
     DateTime? StartedAt,
