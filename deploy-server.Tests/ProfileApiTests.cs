@@ -2,11 +2,11 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
-using PrepForge.DeployServer;
+using DeployKit.DeployServer;
 using StackExchange.Redis;
 using Xunit;
 
-namespace PrepForge.DeployServer.Tests;
+namespace DeployKit.DeployServer.Tests;
 
 public class ProfileApiTests : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
 {

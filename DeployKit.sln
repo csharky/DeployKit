@@ -10,13 +10,13 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "deploy-agent.Tests", "deplo
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "deploy-server", "deploy-server", "{31975B31-CD99-D05E-1BBF-1206D0EC0581}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PrepForge.DeployAgent", "deploy-agent\PrepForge.DeployAgent.csproj", "{C9983EEA-F70F-E06F-5864-5C828C8A8DDB}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeployKit.DeployAgent", "deploy-agent\DeployKit.DeployAgent.csproj", "{C9983EEA-F70F-E06F-5864-5C828C8A8DDB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PrepForge.DeployServer.Tests", "deploy-server.Tests\PrepForge.DeployServer.Tests.csproj", "{DAE409EC-34C7-A92D-10DD-6DBC8B52C599}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeployKit.DeployServer.Tests", "deploy-server.Tests\DeployKit.DeployServer.Tests.csproj", "{DAE409EC-34C7-A92D-10DD-6DBC8B52C599}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PrepForge.DeployAgent.Tests", "deploy-agent.Tests\PrepForge.DeployAgent.Tests.csproj", "{C2F1190D-FEC0-3BB1-80B9-AAD4E0A14940}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeployKit.DeployAgent.Tests", "deploy-agent.Tests\DeployKit.DeployAgent.Tests.csproj", "{C2F1190D-FEC0-3BB1-80B9-AAD4E0A14940}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PrepForge.DeployServer", "deploy-server\PrepForge.DeployServer.csproj", "{1DE8AF28-C1A6-C543-8ABA-EE50FD1D3695}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DeployKit.DeployServer", "deploy-server\DeployKit.DeployServer.csproj", "{1DE8AF28-C1A6-C543-8ABA-EE50FD1D3695}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

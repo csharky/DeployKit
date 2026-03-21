@@ -1,7 +1,7 @@
 using Xunit;
-using PrepForge.DeployServer;
+using DeployKit.DeployServer;
 
-namespace PrepForge.DeployServer.Tests;
+namespace DeployKit.DeployServer.Tests;
 
 public class ProfileServiceTests
 {

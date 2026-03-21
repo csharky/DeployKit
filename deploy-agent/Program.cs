@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging.Console;
-using PrepForge.DeployAgent;
+using DeployKit.DeployAgent;
 
 var builder = Host.CreateApplicationBuilder(args);
 

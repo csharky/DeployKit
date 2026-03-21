@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace PrepForge.DeployAgent.Tests;
+namespace DeployKit.DeployAgent.Tests;
 
 public class SecretRedactionTests
 {

@@ -1,4 +1,4 @@
-namespace PrepForge.DeployServer;
+namespace DeployKit.DeployServer;
 
 public record CreateJobRequest(string ProfileId);
 

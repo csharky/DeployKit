@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== PrepForge Deploy Agent Setup ==="
+echo "=== DeployKit Deploy Agent Setup ==="
 echo ""
 
 # Check prerequisites
@@ -86,7 +86,7 @@ read -p "Install as macOS launch agent (auto-start on login)? [y/N] " -n 1 -r
 echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     AGENT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    PLIST_PATH="$HOME/Library/LaunchAgents/com.prepforge.deploy-agent.plist"
+    PLIST_PATH="$HOME/Library/LaunchAgents/com.deploykit.deploy-agent.plist"
     DOTNET_PATH="$(command -v dotnet)"
 
     cat > "$PLIST_PATH" << PLIST
@@ -95,7 +95,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.prepforge.deploy-agent</string>
+    <string>com.deploykit.deploy-agent</string>
     <key>ProgramArguments</key>
     <array>
         <string>${DOTNET_PATH}</string>
@@ -114,9 +114,9 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     <key>SessionCreate</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/prepforge-deploy-agent.log</string>
+    <string>/tmp/deploykit-deploy-agent.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/prepforge-deploy-agent-error.log</string>
+    <string>/tmp/deploykit-deploy-agent-error.log</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
@@ -132,7 +132,7 @@ PLIST
 
     launchctl load "$PLIST_PATH"
     echo "Launch agent installed and started."
-    echo "  Logs: /tmp/prepforge-deploy-agent.log"
+    echo "  Logs: /tmp/deploykit-deploy-agent.log"
     echo "  Stop: launchctl unload $PLIST_PATH"
     echo "  Start: launchctl load $PLIST_PATH"
 fi

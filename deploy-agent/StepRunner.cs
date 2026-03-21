@@ -4,9 +4,9 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("PrepForge.DeployAgent.Tests")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DeployKit.DeployAgent.Tests")]
 
-namespace PrepForge.DeployAgent;
+namespace DeployKit.DeployAgent;
 
 public record StepResult(bool Success, string? Error);
 

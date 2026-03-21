@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "PrepForge.DeployServer": {
+    "DeployKit.DeployServer": {
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": false,

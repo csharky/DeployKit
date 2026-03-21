@@ -2,7 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
 
-namespace PrepForge.DeployAgent.Tests;
+namespace DeployKit.DeployAgent.Tests;
 
 public class StepRunnerIntegrationTests
 {

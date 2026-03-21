@@ -1,7 +1,7 @@
 using System.Text.Json;
 using StackExchange.Redis;
 
-namespace PrepForge.DeployServer;
+namespace DeployKit.DeployServer;
 
 public class ProfileService
 {

@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.Extensions.Options;
 
-namespace PrepForge.DeployAgent;
+namespace DeployKit.DeployAgent;
 
 public class DeployServerClient
 {

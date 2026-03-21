@@ -12,6 +12,6 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../deploy-server/PrepForge.DeployServer.csproj" />
+    <ProjectReference Include="../deploy-server/DeployKit.DeployServer.csproj" />
   </ItemGroup>
 </Project>

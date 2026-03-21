@@ -1,7 +1,7 @@
 using System.Text;
 using Microsoft.Extensions.Options;
 
-namespace PrepForge.DeployAgent;
+namespace DeployKit.DeployAgent;
 
 public class Worker : BackgroundService
 {

@@ -1,4 +1,4 @@
-namespace PrepForge.DeployAgent;
+namespace DeployKit.DeployAgent;
 
 public record EnvVar(string Key, string Value, bool IsSecret);
 
@@ -31,11 +31,8 @@ public class DeployAgentSettings
 {
     public string ServerUrl { get; set; } = string.Empty;
     public string AgentApiKey { get; set; } = string.Empty;
-    public string KeychainPassword { get; set; } = string.Empty;
     public int PollIntervalSeconds { get; set; } = 10;
-    public string ProjectPath { get; set; } = string.Empty;
-    public string BuildOutputPath { get; set; } = "./build-output";
     public string AgentId { get; set; } = Environment.MachineName;
-    public string LogFilePath { get; set; } = "/tmp/prepforge-deploy-agent.log";
+    public string LogFilePath { get; set; } = "/tmp/deploykit-deploy-agent.log";
     public int LogPushIntervalSeconds { get; set; } = 30;
 }
