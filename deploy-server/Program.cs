@@ -72,7 +72,14 @@ admin.MapPost("/", async (CreateJobRequest request, DeploymentService service) =
     if (string.IsNullOrWhiteSpace(request.ProfileId))
         return Results.BadRequest(new { error = "ProfileId is required" });
 
-    var job = await service.EnqueueAsync(request.ProfileId);
+    if (request.EnvOverrides is { Length: > 0 })
+    {
+        var dupKey = request.EnvOverrides.GroupBy(v => v.Key).FirstOrDefault(g => g.Count() > 1);
+        if (dupKey is not null)
+            return Results.BadRequest(new { error = $"Duplicate env override key: {dupKey.Key}" });
+    }
+
+    var job = await service.EnqueueAsync(request.ProfileId, request.EnvOverrides);
     if (job is null)
         return Results.BadRequest(new { error = "Profile not found" });
 

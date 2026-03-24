@@ -22,10 +22,20 @@ public class DeploymentService
         _profileService = profileService;
     }
 
-    public async Task<JobResponse?> EnqueueAsync(string profileId)
+    public async Task<JobResponse?> EnqueueAsync(string profileId, EnvVar[]? envOverrides = null)
     {
         var profile = await _profileService.GetProfileAsync(profileId);
         if (profile is null) return null;
+
+        // Merge overrides on top of profile env vars (overrides win on key match)
+        var snapshot = profile;
+        if (envOverrides is { Length: > 0 })
+        {
+            var dict = profile.EnvVars.ToDictionary(e => e.Key, e => e);
+            foreach (var ov in envOverrides)
+                dict[ov.Key] = ov;
+            snapshot = profile with { EnvVars = dict.Values.ToArray() };
+        }
 
         var jobId = Guid.NewGuid().ToString("N");
         var now = DateTime.UtcNow;
@@ -33,7 +43,7 @@ public class DeploymentService
         var job = new JobResponse(
             JobId: jobId,
             ProfileId: profileId,
-            ProfileSnapshot: profile,
+            ProfileSnapshot: snapshot,
             Status: "pending",
             CreatedAt: now,
             StartedAt: null,
