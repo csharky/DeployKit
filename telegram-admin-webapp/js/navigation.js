@@ -4,7 +4,7 @@ import { loadAgents } from './agents.js';
 import { loadProfiles, openCreateForm } from './profiles.js';
 import { api } from './api.js';
 import { haptic } from './helpers.js';
-import { showEnvOverridesSection, resetEnvOverrides } from './env-overrides.js';
+import { showEnvOverridesSection, resetEnvOverrides, loadFromProfile } from './env-overrides.js';
 
 const SETTINGS_PAGES = new Set(['settings', 'connection', 'agents', 'profiles']);
 
@@ -180,8 +180,13 @@ function loadNewJobProfiles() {
         btn.disabled = false;
 
         select.addEventListener('change', function() {
-          showEnvOverridesSection(!!select.value);
+          const id = select.value;
+          if (!id) { showEnvOverridesSection(false); return; }
+          showEnvOverridesSection(true);
           resetEnvOverrides();
+          api('GET', '/api/profiles/' + id)
+            .then(p => loadFromProfile(p.envVars || []))
+            .catch(() => {});
         });
 
         const link = document.createElement('span');
