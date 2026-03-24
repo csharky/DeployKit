@@ -1,18 +1,25 @@
 import { haptic } from './helpers.js';
 
+// Each row: { key, value, isSecret, fromProfile }
+// fromProfile=true: came from profile template, secret with empty value = "keep as-is"
 let overrideRows = [];
-let expanded = false;
 
 export function initEnvOverrides() {
-  document.getElementById('env-overrides-toggle').addEventListener('click', toggleOverrides);
   document.getElementById('add-env-override-btn').addEventListener('click', addRow);
 }
 
 export function resetEnvOverrides() {
   overrideRows = [];
-  expanded = false;
-  document.getElementById('env-overrides-body').style.display = 'none';
-  document.getElementById('env-overrides-chevron').textContent = '\u25B6';
+  renderRows();
+}
+
+export function loadFromProfile(envVars) {
+  overrideRows = envVars.map(v => ({
+    key: v.key,
+    value: v.isSecret ? '' : v.value,   // secrets come masked — show empty
+    isSecret: v.isSecret,
+    fromProfile: true,
+  }));
   renderRows();
 }
 
@@ -21,13 +28,19 @@ export function showEnvOverridesSection(visible) {
   if (!visible) resetEnvOverrides();
 }
 
+// Returns array of EnvVar overrides to send, or null on validation error.
+// Profile-origin secrets left empty → not sent (keep server value).
 export function getEnvOverrides() {
   syncFromDom();
-  const filled = overrideRows.filter(r => r.key.trim() !== '');
 
-  // validate duplicates
+  const toSend = overrideRows.filter(r => {
+    if (!r.key.trim()) return false;
+    if (r.fromProfile && r.isSecret && r.value === '') return false; // unchanged
+    return true;
+  });
+
   const seen = new Set();
-  for (const r of filled) {
+  for (const r of toSend) {
     const k = r.key.trim();
     if (seen.has(k)) {
       const errEl = document.getElementById('env-override-error');
@@ -40,21 +53,15 @@ export function getEnvOverrides() {
   }
   document.getElementById('env-override-error').style.display = 'none';
 
-  return filled.map(r => ({
+  return toSend.map(r => ({
     key: r.key.trim(),
     value: r.value,
     isSecret: r.isSecret,
   }));
 }
 
-function toggleOverrides() {
-  expanded = !expanded;
-  document.getElementById('env-overrides-body').style.display = expanded ? 'block' : 'none';
-  document.getElementById('env-overrides-chevron').textContent = expanded ? '\u25BC' : '\u25B6';
-}
-
 function addRow() {
-  overrideRows.push({ key: '', value: '', isSecret: false });
+  overrideRows.push({ key: '', value: '', isSecret: false, fromProfile: false });
   renderRows();
   haptic('impact');
   const keys = document.querySelectorAll('#env-override-rows .envvar-key');
@@ -68,13 +75,13 @@ function removeRow(idx) {
 }
 
 function syncFromDom() {
-  const container = document.getElementById('env-override-rows');
-  const rows = container.querySelectorAll('.envvar-row');
-  overrideRows = Array.from(rows).map(row => ({
-    key: row.querySelector('.envvar-key').value.trim(),
-    value: row.querySelector('.envvar-val').value,
-    isSecret: row.querySelector('.envvar-secret').checked,
-  }));
+  const rows = document.querySelectorAll('#env-override-rows .envvar-row');
+  rows.forEach((row, i) => {
+    if (!overrideRows[i]) return;
+    overrideRows[i].key = row.querySelector('.envvar-key').value;
+    overrideRows[i].value = row.querySelector('.envvar-val').value;
+    overrideRows[i].isSecret = row.querySelector('.envvar-secret').checked;
+  });
 }
 
 function renderRows() {
@@ -90,11 +97,12 @@ function renderRows() {
     keyInput.className = 'form-input envvar-key';
     keyInput.placeholder = 'KEY';
     keyInput.value = row.key;
+    if (row.fromProfile) keyInput.readOnly = true;
 
     const valInput = document.createElement('input');
     valInput.className = 'form-input envvar-val';
     valInput.type = row.isSecret ? 'password' : 'text';
-    valInput.placeholder = 'value';
+    valInput.placeholder = row.fromProfile && row.isSecret ? '(unchanged)' : 'value';
     valInput.value = row.value;
 
     const secretLabel = document.createElement('label');
@@ -103,6 +111,7 @@ function renderRows() {
     checkbox.type = 'checkbox';
     checkbox.className = 'envvar-secret';
     checkbox.checked = row.isSecret;
+    checkbox.disabled = row.fromProfile;
     checkbox.addEventListener('change', () => {
       syncFromDom();
       overrideRows[i].isSecret = checkbox.checked;
