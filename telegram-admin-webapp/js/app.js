@@ -3,6 +3,7 @@ import { storageGet, storageSet } from './storage.js';
 import { switchTab, showPage, openSettingsSection, backToSettings } from './navigation.js';
 import { api } from './api.js';
 import { haptic } from './helpers.js';
+import { getEnvOverrides, initEnvOverrides } from './env-overrides.js';
 
 // ─── Init ───
 
@@ -46,6 +47,8 @@ function registerListeners() {
   document.getElementById('setup-connect-btn').addEventListener('click', saveConfig);
   document.getElementById('settings-save-btn').addEventListener('click', saveSettings);
   document.getElementById('submit-btn').addEventListener('click', createJob);
+
+  initEnvOverrides();
 }
 
 // ─── Config ───
@@ -75,11 +78,16 @@ async function createJob() {
   const profileId = document.getElementById('job-profile-select').value;
   if (!profileId) { document.getElementById('job-profile-select').focus(); return; }
 
+  const envOverrides = getEnvOverrides();
+  if (envOverrides === null) return; // validation failed
+
   const btn = document.getElementById('submit-btn');
   btn.disabled = true;
   btn.textContent = 'Creating...';
   try {
-    await api('POST', '/api/jobs', { profileId });
+    const body = { profileId };
+    if (envOverrides.length > 0) body.envOverrides = envOverrides;
+    await api('POST', '/api/jobs', body);
     haptic('success');
     switchTab('jobs');
   } catch (e) {

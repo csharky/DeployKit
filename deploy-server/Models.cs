@@ -1,6 +1,6 @@
 namespace DeployKit.DeployServer;
 
-public record CreateJobRequest(string ProfileId);
+public record CreateJobRequest(string ProfileId, EnvVar[]? EnvOverrides = null);
 
 public record JobResponse(
     string JobId,
