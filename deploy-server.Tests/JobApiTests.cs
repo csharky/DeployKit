@@ -1,21 +1,21 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
 using DeployKit.DeployServer;
-using StackExchange.Redis;
 using Xunit;
 
 namespace DeployKit.DeployServer.Tests;
 
-public class JobApiTests : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
+public class JobApiTests : IClassFixture<TestWebApplicationFactory>, IAsyncLifetime
 {
+    private readonly TestWebApplicationFactory _factory;
     private readonly HttpClient _adminClient;
     private readonly HttpClient _agentClient;
-    private IConnectionMultiplexer? _redis;
 
-    public JobApiTests(WebApplicationFactory<Program> factory)
+    public JobApiTests(TestWebApplicationFactory factory)
     {
+        _factory = factory;
+
         _adminClient = factory.CreateClient();
         _adminClient.DefaultRequestHeaders.Add("X-API-Key", "change-me-admin-key");
 
@@ -23,35 +23,8 @@ public class JobApiTests : IClassFixture<WebApplicationFactory<Program>>, IAsync
         _agentClient.DefaultRequestHeaders.Add("X-API-Key", "change-me-agent-key");
     }
 
-    public async Task InitializeAsync()
-    {
-        _redis = await ConnectionMultiplexer.ConnectAsync("localhost");
-        await CleanKeys();
-    }
-
-    public async Task DisposeAsync()
-    {
-        await CleanKeys();
-        _redis?.Dispose();
-    }
-
-    private async Task CleanKeys()
-    {
-        var db = _redis!.GetDatabase();
-        // Clean profiles
-        var profileIds = await db.SetMembersAsync("deploy:profiles");
-        foreach (var id in profileIds)
-            await db.KeyDeleteAsync($"deploy:profile:{id}");
-        await db.KeyDeleteAsync("deploy:profiles");
-        // Clean jobs from queue and history
-        await db.KeyDeleteAsync("deploy:queue");
-        await db.KeyDeleteAsync("deploy:running");
-        // Clean history entries
-        var historyIds = await db.ListRangeAsync("deploy:history");
-        foreach (var id in historyIds)
-            await db.KeyDeleteAsync($"deploy:job:{id}");
-        await db.KeyDeleteAsync("deploy:history");
-    }
+    public Task InitializeAsync() => _factory.ClearAllDataAsync();
+    public Task DisposeAsync() => Task.CompletedTask;
 
     // ----- Helpers -----
 
@@ -98,10 +71,7 @@ public class JobApiTests : IClassFixture<WebApplicationFactory<Program>>, IAsync
             new EnvVar("PUBLIC", "pub_value", false)
         };
         var request = new CreateProfileRequest(
-            "SnapshotTest",
-            "/test/dir",
-            envVars,
-            new[] { "npm install", "npm run build" });
+            "SnapshotTest", "/test/dir", envVars, new[] { "npm install", "npm run build" });
 
         var createResponse = await _adminClient.PostAsJsonAsync("/api/profiles", request);
         createResponse.EnsureSuccessStatusCode();
@@ -173,15 +143,10 @@ public class JobApiTests : IClassFixture<WebApplicationFactory<Program>>, IAsync
         Assert.Equal(HttpStatusCode.Created, submitResponse.StatusCode);
         var jobId = submitBody.GetProperty("jobId").GetString()!;
 
-        // Update the profile after enqueue
         var updateRequest = new UpdateProfileRequest(
-            "RenamedProfile",
-            "/new/path",
-            Array.Empty<EnvVar>(),
-            new[] { "new-step" });
+            "RenamedProfile", "/new/path", Array.Empty<EnvVar>(), new[] { "new-step" });
         await _adminClient.PutAsJsonAsync($"/api/profiles/{profileId}", updateRequest);
 
-        // Fetch the stored job — snapshot must reflect original profile
         var jobResponse = await _adminClient.GetAsync($"/api/jobs/{jobId}");
         Assert.Equal(HttpStatusCode.OK, jobResponse.StatusCode);
         var jobBody = await jobResponse.Content.ReadFromJsonAsync<JsonElement>();
@@ -216,7 +181,6 @@ public class JobApiTests : IClassFixture<WebApplicationFactory<Program>>, IAsync
         var buildMode = snapshotEnvVars.First(e => e.GetProperty("key").GetString() == "BUILD_MODE");
         Assert.Equal("release", buildMode.GetProperty("value").GetString());
 
-        // Non-overridden var stays intact
         var apiKey = snapshotEnvVars.First(e => e.GetProperty("key").GetString() == "API_KEY");
         Assert.Equal("original_key", apiKey.GetProperty("value").GetString());
     }

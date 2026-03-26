@@ -1,26 +1,35 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
-using StackExchange.Redis;
+using Dapper;
 
 namespace DeployKit.DeployServer;
 
 public class DeploymentService
 {
-    private const string QueueKey = "deploy:queue";
-    private const string RunningKey = "deploy:running";
-    private const string HistoryKey = "deploy:history";
     private const int MaxHistory = 20;
-    private static readonly TimeSpan JobTtl = TimeSpan.FromDays(7);
+    private const int MaxAgentLogLines = 1000;
 
-    private readonly IDatabase _redis;
-    private readonly ILogger<DeploymentService> _logger;
+    private readonly DbConnectionFactory _db;
+    private readonly JobQueue _queue;
     private readonly ProfileService _profileService;
+    private readonly ILogger<DeploymentService> _logger;
 
-    public DeploymentService(IConnectionMultiplexer redis, ILogger<DeploymentService> logger, ProfileService profileService)
+    // In-memory heartbeat tracking: agentId → last seen UTC
+    private readonly ConcurrentDictionary<string, DateTime> _heartbeats = new();
+
+    public DeploymentService(
+        DbConnectionFactory db,
+        JobQueue queue,
+        ProfileService profileService,
+        ILogger<DeploymentService> logger)
     {
-        _redis = redis.GetDatabase();
-        _logger = logger;
+        _db = db;
+        _queue = queue;
         _profileService = profileService;
+        _logger = logger;
     }
+
+    // ── Jobs ──────────────────────────────────────────────────────────────────
 
     public async Task<JobResponse?> EnqueueAsync(string profileId, EnvVar[]? envOverrides = null)
     {
@@ -52,203 +61,240 @@ public class DeploymentService
             Error: null,
             ArtifactPath: null);
 
-        await SaveJobAsync(job);
-        await _redis.ListLeftPushAsync(QueueKey, jobId);
+        await using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync("""
+            INSERT INTO jobs (id, profile_id, profile_snapshot, status, env_overrides, created_at, logs)
+            VALUES (@id, @profileId, @profileSnapshot, 'pending', @envOverrides, @createdAt, '')
+            """,
+            new
+            {
+                id = jobId,
+                profileId,
+                profileSnapshot = JsonSerializer.Serialize(snapshot),
+                envOverrides = envOverrides is { Length: > 0 } ? JsonSerializer.Serialize(envOverrides) : null,
+                createdAt = now.ToString("O")
+            });
+
+        await _queue.EnqueueAsync(jobId);
         _logger.LogInformation("Enqueued job {JobId} profileId={ProfileId}", jobId, profileId);
         return job;
     }
 
-    public async Task<JobResponse?> DequeueAsync()
+    public async Task<JobResponse?> DequeueAsync(CancellationToken ct = default)
     {
-        var jobId = await _redis.ListRightPopAsync(QueueKey);
-        if (jobId.IsNullOrEmpty)
-            return null;
+        var jobId = _queue.TryDequeue();
+        if (jobId is null) return null;
 
-        var job = await GetJobAsync(jobId.ToString());
-        if (job is null)
-            return null;
+        await using var conn = _db.CreateConnection();
+        var startedAt = DateTime.UtcNow;
+        await conn.ExecuteAsync("""
+            UPDATE jobs SET status = 'running', started_at = @startedAt WHERE id = @jobId
+            """,
+            new { jobId, startedAt = startedAt.ToString("O") });
 
-        var updated = job with
-        {
-            Status = "running",
-            StartedAt = DateTime.UtcNow
-        };
+        var job = await GetJobAsync(jobId);
+        if (job is not null)
+            _logger.LogInformation("Dequeued job {JobId}", jobId);
 
-        await SaveJobAsync(updated);
-        await _redis.SetAddAsync(RunningKey, updated.JobId);
-        _logger.LogInformation("Dequeued job {JobId}", updated.JobId);
-        return updated;
+        return job;
     }
 
     public async Task<JobResponse?> UpdateStatusAsync(string jobId, string status, string? logs, string? error, string? artifactPath)
     {
-        var job = await GetJobAsync(jobId);
-        if (job is null)
-            return null;
+        await using var conn = _db.CreateConnection();
+        var completedAt = status is "completed" or "failed" ? DateTime.UtcNow.ToString("O") : null;
 
-        var updated = job with
-        {
-            Status = status,
-            Logs = logs ?? job.Logs,
-            Error = error ?? job.Error,
-            ArtifactPath = artifactPath ?? job.ArtifactPath,
-            CompletedAt = status is "completed" or "failed" ? DateTime.UtcNow : job.CompletedAt
-        };
-
-        await SaveJobAsync(updated);
-
-        if (status is "completed" or "failed" or "cancelled")
-        {
-            await _redis.SetRemoveAsync(RunningKey, jobId);
-            await _redis.ListLeftPushAsync(HistoryKey, jobId);
-            await _redis.ListTrimAsync(HistoryKey, 0, MaxHistory - 1);
-        }
+        await conn.ExecuteAsync("""
+            UPDATE jobs SET
+                status = @status,
+                logs = COALESCE(@logs, logs),
+                error = COALESCE(@error, error),
+                artifact_path = COALESCE(@artifactPath, artifact_path),
+                completed_at = COALESCE(@completedAt, completed_at)
+            WHERE id = @jobId
+            """,
+            new { jobId, status, logs, error, artifactPath, completedAt });
 
         _logger.LogInformation("Updated job {JobId} status={Status}", jobId, status);
-        return updated;
+        return await GetJobAsync(jobId);
     }
 
     public async Task<JobResponse?> GetJobAsync(string jobId)
     {
-        var json = await _redis.StringGetAsync(JobKey(jobId));
-        if (json.IsNullOrEmpty)
-            return null;
-
-        return JsonSerializer.Deserialize<JobResponse>(json.ToString());
+        await using var conn = _db.CreateConnection();
+        var row = await conn.QuerySingleOrDefaultAsync(
+            "SELECT * FROM jobs WHERE id = @jobId", new { jobId });
+        return row is null ? null : MapJob(row);
     }
 
     public async Task<List<JobResponse>> GetRecentAsync()
     {
-        var jobs = new List<JobResponse>();
-
-        // Get queued jobs
-        var queuedIds = await _redis.ListRangeAsync(QueueKey);
-        foreach (var id in queuedIds)
-        {
-            var job = await GetJobAsync(id.ToString());
-            if (job is not null)
-                jobs.Add(job);
-        }
-
-        // Get running jobs
-        var runningIds = await _redis.SetMembersAsync(RunningKey);
-        foreach (var id in runningIds)
-        {
-            var job = await GetJobAsync(id.ToString());
-            if (job is not null && jobs.All(j => j.JobId != job.JobId))
-                jobs.Add(job);
-        }
-
-        // Get history
-        var historyIds = await _redis.ListRangeAsync(HistoryKey);
-        foreach (var id in historyIds)
-        {
-            var job = await GetJobAsync(id.ToString());
-            if (job is not null && jobs.All(j => j.JobId != job.JobId))
-                jobs.Add(job);
-        }
-
-        return jobs.OrderByDescending(j => j.CreatedAt).ToList();
+        await using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync("""
+            SELECT * FROM jobs
+            WHERE status IN ('pending', 'running')
+            UNION ALL
+            SELECT * FROM (
+                SELECT * FROM jobs
+                WHERE status IN ('completed', 'failed', 'cancelled')
+                ORDER BY completed_at DESC
+                LIMIT 20
+            )
+            ORDER BY created_at DESC
+            """);
+        return rows.Select(MapJob).OrderByDescending(j => j.CreatedAt).ToList();
     }
 
     public async Task<bool> CancelAsync(string jobId)
     {
         var job = await GetJobAsync(jobId);
-        if (job is null || job.Status != "pending")
-            return false;
+        if (job is null || job.Status != "pending") return false;
 
-        await _redis.ListRemoveAsync(QueueKey, jobId);
-        var updated = job with { Status = "cancelled", CompletedAt = DateTime.UtcNow };
-        await SaveJobAsync(updated);
+        _queue.MarkCancelled(jobId);
 
-        await _redis.ListLeftPushAsync(HistoryKey, jobId);
-        await _redis.ListTrimAsync(HistoryKey, 0, MaxHistory - 1);
+        await using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync("""
+            UPDATE jobs SET status = 'cancelled', completed_at = @now WHERE id = @jobId
+            """,
+            new { jobId, now = DateTime.UtcNow.ToString("O") });
 
         _logger.LogInformation("Cancelled job {JobId}", jobId);
         return true;
     }
 
+    public async Task<bool> HasActiveJobsForProfileAsync(string profileId)
+    {
+        await using var conn = _db.CreateConnection();
+        var count = await conn.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*) FROM jobs
+            WHERE profile_id = @profileId AND status IN ('pending', 'running')
+            """,
+            new { profileId });
+        return count > 0;
+    }
+
+    // ── Agents ────────────────────────────────────────────────────────────────
+
     public async Task RecordHeartbeatAsync(string agentId)
     {
         var now = DateTime.UtcNow;
-        await _redis.StringSetAsync($"deploy:agent:{agentId}:heartbeat", now.ToString("O"), TimeSpan.FromMinutes(2));
-        await _redis.SetAddAsync("deploy:agents", agentId);
+        _heartbeats[agentId] = now;
+
+        await using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync("""
+            INSERT INTO agents (id, last_seen) VALUES (@agentId, @now)
+            ON CONFLICT(id) DO UPDATE SET last_seen = @now
+            """,
+            new { agentId, now = now.ToString("O") });
     }
 
+    public bool IsAgentAlive(string agentId)
+    {
+        return _heartbeats.TryGetValue(agentId, out var lastSeen)
+               && DateTime.UtcNow - lastSeen < TimeSpan.FromMinutes(2);
+    }
+
+    // Async version for the /alive endpoint (also checks DB for agents not seen since startup)
     public async Task<bool> IsAgentAliveAsync(string agentId)
     {
-        return await _redis.KeyExistsAsync($"deploy:agent:{agentId}:heartbeat");
+        if (IsAgentAlive(agentId)) return true;
+
+        await using var conn = _db.CreateConnection();
+        var lastSeenStr = await conn.ExecuteScalarAsync<string?>(
+            "SELECT last_seen FROM agents WHERE id = @agentId", new { agentId });
+
+        if (lastSeenStr is null) return false;
+        var lastSeen = DateTime.Parse(lastSeenStr, null, System.Globalization.DateTimeStyles.RoundtripKind);
+        return DateTime.UtcNow - lastSeen < TimeSpan.FromMinutes(2);
     }
 
     public async Task<List<AgentStatus>> GetAllAgentsAsync()
     {
-        var agentIds = await _redis.SetMembersAsync("deploy:agents");
-        var result = new List<AgentStatus>();
+        await using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync("SELECT id, last_seen FROM agents ORDER BY id");
 
-        foreach (var id in agentIds)
+        return rows.Select(row =>
         {
-            var agentId = id.ToString();
-            var heartbeatJson = await _redis.StringGetAsync($"deploy:agent:{agentId}:heartbeat");
-            var alive = !heartbeatJson.IsNullOrEmpty;
-            var lastSeen = alive ? DateTime.Parse(heartbeatJson.ToString()) : (DateTime?)null;
-            result.Add(new AgentStatus(agentId, alive, lastSeen));
-        }
-
-        return result.OrderBy(a => a.AgentId).ToList();
+            var agentId = (string)row.id;
+            var lastSeenStr = (string?)row.last_seen;
+            DateTime? lastSeen = lastSeenStr is not null
+                ? DateTime.Parse(lastSeenStr, null, System.Globalization.DateTimeStyles.RoundtripKind)
+                : null;
+            var alive = IsAgentAlive(agentId);
+            return new AgentStatus(agentId, alive, lastSeen);
+        }).ToList();
     }
 
     public async Task StoreAgentLogsAsync(string agentId, string[] lines)
     {
-        const int MaxLines = 1000;
-        var key = $"deploy:agent:{agentId}:logs";
+        await using var conn = _db.CreateConnection();
+        var existingJson = await conn.ExecuteScalarAsync<string?>(
+            "SELECT logs FROM agents WHERE id = @agentId", new { agentId });
 
-        var existing = await _redis.StringGetAsync(key);
-        var stored = existing.IsNullOrEmpty
-            ? []
-            : JsonSerializer.Deserialize<string[]>(existing.ToString()) ?? [];
+        var existing = existingJson is not null
+            ? JsonSerializer.Deserialize<string[]>(existingJson) ?? []
+            : Array.Empty<string>();
 
-        var combined = stored.Concat(lines).TakeLast(MaxLines).ToArray();
-        await _redis.StringSetAsync(key, JsonSerializer.Serialize(combined), TimeSpan.FromHours(1));
+        var combined = existing.Concat(lines).TakeLast(MaxAgentLogLines).ToArray();
+        var logsJson = JsonSerializer.Serialize(combined);
+
+        await conn.ExecuteAsync("""
+            INSERT INTO agents (id, logs) VALUES (@agentId, @logs)
+            ON CONFLICT(id) DO UPDATE SET logs = @logs
+            """,
+            new { agentId, logs = logsJson });
     }
 
     public async Task<string[]> GetAgentLogsAsync(string agentId)
     {
-        var key = $"deploy:agent:{agentId}:logs";
-        var json = await _redis.StringGetAsync(key);
-        if (json.IsNullOrEmpty)
-            return [];
+        await using var conn = _db.CreateConnection();
+        var json = await conn.ExecuteScalarAsync<string?>(
+            "SELECT logs FROM agents WHERE id = @agentId", new { agentId });
 
-        return JsonSerializer.Deserialize<string[]>(json.ToString()) ?? [];
+        return json is not null
+            ? JsonSerializer.Deserialize<string[]>(json) ?? []
+            : [];
     }
 
-    public async Task<bool> HasActiveJobsForProfileAsync(string profileId)
+    // ── Recovery ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// On startup, re-enqueue any pending jobs that were in the queue before a restart.
+    /// </summary>
+    public async Task RecoverPendingJobsAsync()
     {
-        // Check queued jobs
-        var queuedIds = await _redis.ListRangeAsync(QueueKey);
-        foreach (var id in queuedIds)
-        {
-            var job = await GetJobAsync(id.ToString());
-            if (job is not null && job.ProfileId == profileId)
-                return true;
-        }
+        await using var conn = _db.CreateConnection();
+        var pendingIds = await conn.QueryAsync<string>(
+            "SELECT id FROM jobs WHERE status = 'pending' ORDER BY created_at ASC");
 
-        // Check running jobs
-        var runningIds = await _redis.SetMembersAsync(RunningKey);
-        foreach (var id in runningIds)
+        var ids = pendingIds.ToList();
+        if (ids.Count > 0)
         {
-            var job = await GetJobAsync(id.ToString());
-            if (job is not null && job.ProfileId == profileId)
-                return true;
+            await _queue.RecoverAsync(ids);
+            _logger.LogInformation("Recovered {Count} pending jobs from DB", ids.Count);
         }
-
-        return false;
     }
 
-    private async Task SaveJobAsync(JobResponse job)
+    // ── Mapping ───────────────────────────────────────────────────────────────
+
+    private static JobResponse MapJob(dynamic row)
     {
-        var json = JsonSerializer.Serialize(job);
-        await _redis.StringSetAsync(JobKey(job.JobId), json, JobTtl);
-    }
+        BuildProfile? snapshot = null;
+        if (row.profile_snapshot is string snapshotJson && snapshotJson.Length > 0)
+            snapshot = JsonSerializer.Deserialize<BuildProfile>(snapshotJson);
 
-    private static string JobKey(string jobId) => $"deploy:job:{jobId}";
+        return new JobResponse(
+            JobId: (string)row.id,
+            ProfileId: (string)row.profile_id,
+            ProfileSnapshot: snapshot,
+            Status: (string)row.status,
+            CreatedAt: DateTime.Parse((string)row.created_at, null, System.Globalization.DateTimeStyles.RoundtripKind),
+            StartedAt: row.started_at is string s && s.Length > 0
+                ? DateTime.Parse(s, null, System.Globalization.DateTimeStyles.RoundtripKind) : null,
+            CompletedAt: row.completed_at is string c && c.Length > 0
+                ? DateTime.Parse(c, null, System.Globalization.DateTimeStyles.RoundtripKind) : null,
+            Logs: row.logs is string l && l.Length > 0 ? l : null,
+            Error: row.error is string e && e.Length > 0 ? e : null,
+            ArtifactPath: row.artifact_path is string a && a.Length > 0 ? a : null);
+    }
 }

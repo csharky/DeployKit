@@ -1,65 +1,25 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
 using DeployKit.DeployServer;
-using StackExchange.Redis;
 using Xunit;
 
 namespace DeployKit.DeployServer.Tests;
 
-public class ProfileApiTests : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
+public class ProfileApiTests : IClassFixture<TestWebApplicationFactory>, IAsyncLifetime
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly TestWebApplicationFactory _factory;
     private readonly HttpClient _client;
-    private IConnectionMultiplexer? _redis;
 
-    public ProfileApiTests(WebApplicationFactory<Program> factory)
+    public ProfileApiTests(TestWebApplicationFactory factory)
     {
         _factory = factory;
         _client = factory.CreateClient();
         _client.DefaultRequestHeaders.Add("X-API-Key", "change-me-admin-key");
     }
 
-    public async Task InitializeAsync()
-    {
-        _redis = await ConnectionMultiplexer.ConnectAsync("localhost");
-        await CleanProfileKeys();
-    }
-
-    public async Task DisposeAsync()
-    {
-        await CleanProfileKeys();
-        _redis?.Dispose();
-    }
-
-    private async Task CleanProfileKeys()
-    {
-        var db = _redis!.GetDatabase();
-        var ids = await db.SetMembersAsync("deploy:profiles");
-        foreach (var id in ids)
-        {
-            await db.KeyDeleteAsync($"deploy:profile:{id}");
-        }
-        await db.KeyDeleteAsync("deploy:profiles");
-    }
-
-    private async Task CleanJobKeys()
-    {
-        var db = _redis!.GetDatabase();
-        // Clean queue and running sets
-        await db.KeyDeleteAsync("deploy:queue");
-        await db.KeyDeleteAsync("deploy:running");
-        // Clean history list
-        var historyIds = await db.ListRangeAsync("deploy:history");
-        foreach (var id in historyIds)
-        {
-            await db.KeyDeleteAsync($"deploy:job:{id}");
-        }
-        await db.KeyDeleteAsync("deploy:history");
-    }
-
-    // ----- Helper -----
+    public Task InitializeAsync() => _factory.ClearAllDataAsync();
+    public Task DisposeAsync() => Task.CompletedTask;
 
     private async Task<(HttpResponseMessage Response, JsonElement Body)> CreateProfile(
         string name, string[]? steps = null, EnvVar[]? envVars = null, string? workingDirectory = null)
@@ -81,7 +41,6 @@ public class ProfileApiTests : IClassFixture<WebApplicationFactory<Program>>, IA
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.NotNull(response.Headers.Location);
         Assert.Equal("ValidProfile", body.GetProperty("name").GetString());
-        // Secret must be masked
         var vars = body.GetProperty("envVars");
         Assert.Equal("***", vars[0].GetProperty("value").GetString());
         Assert.Equal("pub", vars[1].GetProperty("value").GetString());
@@ -151,8 +110,7 @@ public class ProfileApiTests : IClassFixture<WebApplicationFactory<Program>>, IA
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var profiles = body.EnumerateArray().ToList();
-        Assert.True(profiles.Count >= 2);
-        // Find our profiles
+        Assert.Equal(2, profiles.Count);
         var names = profiles.Select(p => p.GetProperty("name").GetString()).ToList();
         var alphaIdx = names.IndexOf("Alpha");
         var zebraIdx = names.IndexOf("Zebra");
@@ -177,7 +135,7 @@ public class ProfileApiTests : IClassFixture<WebApplicationFactory<Program>>, IA
     public async Task GetSingle_Exists_ReturnsMaskedProfile()
     {
         var envVars = new[] { new EnvVar("MY_SECRET", "secret_val", true) };
-        var (createResponse, createBody) = await CreateProfile("GetSingleProfile", envVars: envVars);
+        var (_, createBody) = await CreateProfile("GetSingleProfile", envVars: envVars);
         var id = createBody.GetProperty("id").GetString();
 
         var response = await _client.GetAsync($"/api/profiles/{id}");
@@ -185,7 +143,6 @@ public class ProfileApiTests : IClassFixture<WebApplicationFactory<Program>>, IA
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("GetSingleProfile", body.GetProperty("name").GetString());
-        // Secret should be masked
         var vars = body.GetProperty("envVars").EnumerateArray().ToList();
         Assert.Equal("***", vars[0].GetProperty("value").GetString());
     }
@@ -224,13 +181,11 @@ public class ProfileApiTests : IClassFixture<WebApplicationFactory<Program>>, IA
         var (_, createBody) = await CreateProfile("SentinelProfile", envVars: envVars);
         var id = createBody.GetProperty("id").GetString();
 
-        // PUT with "***" as value — should preserve original secret
         var updateEnvVars = new[] { new EnvVar("MY_SECRET", "***", true) };
         var updateRequest = new UpdateProfileRequest("SentinelProfile", string.Empty, updateEnvVars, new[] { "build" });
         var response = await _client.PutAsJsonAsync($"/api/profiles/{id}", updateRequest);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        // The response still shows *** (masked), but the PUT succeeded — secret was preserved
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         var vars = body.GetProperty("envVars").EnumerateArray().ToList();
         Assert.Equal("***", vars[0].GetProperty("value").GetString());
@@ -242,7 +197,6 @@ public class ProfileApiTests : IClassFixture<WebApplicationFactory<Program>>, IA
         var (_, createBody) = await CreateProfile("SelfRenameProfile", new[] { "step1" });
         var id = createBody.GetProperty("id").GetString();
 
-        // PUT with the same name should succeed (not rejected as duplicate)
         var updateRequest = new UpdateProfileRequest("SelfRenameProfile", string.Empty, Array.Empty<EnvVar>(), new[] { "step1", "step2" });
         var response = await _client.PutAsJsonAsync($"/api/profiles/{id}", updateRequest);
 
@@ -316,72 +270,42 @@ public class ProfileApiTests : IClassFixture<WebApplicationFactory<Program>>, IA
     [Fact]
     public async Task Delete_WithActiveJob_Returns409()
     {
-        await CleanJobKeys();
         var (_, createBody) = await CreateProfile("ActiveJobProfile", new[] { "build" });
         var id = createBody.GetProperty("id").GetString()!;
 
-        // Enqueue a job for this profile
         var jobResponse = await _client.PostAsJsonAsync("/api/jobs", new { profileId = id });
         Assert.Equal(HttpStatusCode.Created, jobResponse.StatusCode);
 
-        // Attempt to delete profile — should be blocked
         var response = await _client.DeleteAsync($"/api/profiles/{id}");
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
 
         Assert.Equal((HttpStatusCode)409, response.StatusCode);
         Assert.Equal("Profile has active jobs", body.GetProperty("error").GetString());
-
-        await CleanJobKeys();
     }
 
     [Fact]
     public async Task Delete_WithCompletedJob_Returns200()
     {
-        await CleanJobKeys();
         var (_, createBody) = await CreateProfile("CompletedJobProfile", new[] { "build" });
         var id = createBody.GetProperty("id").GetString()!;
 
-        // Enqueue a job
         var jobResponse = await _client.PostAsJsonAsync("/api/jobs", new { profileId = id });
         Assert.Equal(HttpStatusCode.Created, jobResponse.StatusCode);
 
-        // Create an agent client
         var agentClient = _factory.CreateClient();
         agentClient.DefaultRequestHeaders.Add("X-API-Key", "change-me-agent-key");
 
-        // Poll to dequeue (moves job from queue to running)
         var pollResponse = await agentClient.PostAsync("/api/agent/poll", null);
         Assert.Equal(HttpStatusCode.OK, pollResponse.StatusCode);
         var pollBody = await pollResponse.Content.ReadFromJsonAsync<JsonElement>();
         var jobId = pollBody.GetProperty("jobId").GetString()!;
 
-        // Complete the job
         var statusResponse = await agentClient.PutAsJsonAsync(
             $"/api/agent/status?jobId={jobId}",
             new { status = "completed", logs = (string?)null, error = (string?)null, artifactPath = (string?)null });
         Assert.Equal(HttpStatusCode.OK, statusResponse.StatusCode);
 
-        // Now delete should succeed — job is completed, not active
         var response = await _client.DeleteAsync($"/api/profiles/{id}");
-
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        await CleanJobKeys();
-    }
-
-    // ----- Storage tests -----
-
-    [Fact]
-    public async Task Storage_UsesCorrectRedisKeys()
-    {
-        var (_, createBody) = await CreateProfile("StorageTestProfile");
-        var id = createBody.GetProperty("id").GetString()!;
-
-        var db = _redis!.GetDatabase();
-        var keyExists = await db.KeyExistsAsync($"deploy:profile:{id}");
-        var inSet = await db.SetContainsAsync("deploy:profiles", id);
-
-        Assert.True(keyExists, $"Expected key deploy:profile:{id} to exist in Redis");
-        Assert.True(inSet, $"Expected id {id} to be in deploy:profiles set");
     }
 }
