@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { api, consumeSseStream } from './api.js';
 import { esc, fmt, buildTime, relTime, fmtDuration, haptic, TERMINAL_STATUSES } from './helpers.js';
+import { switchTab } from './navigation.js';
 
 const REFRESH_INTERVAL = 15000;
 
@@ -154,8 +155,18 @@ export async function toggleCard(el, jobId) {
   }
   if (j.error) lines.push(`<div class="error-msg" style="text-align:left;padding:8px 0">${esc(j.error)}</div>`);
   if (j.artifactPath) lines.push(`<div class="card-meta">Artifact: ${esc(j.artifactPath)}</div>`);
+  if (TERMINAL_STATUSES.includes(j.status)) {
+    lines.push(`<button class="btn btn-restart" data-restart-job-id="${esc(j.jobId)}" style="margin-bottom:8px">Restart</button>`);
+  }
   lines.push(`<div class="logs" id="logs-${jobId}">${esc(j.logs || '')}</div>`);
   detailEl.innerHTML = lines.join('');
+
+  if (TERMINAL_STATUSES.includes(j.status)) {
+    detailEl.querySelector('.btn-restart')?.addEventListener('click', e => {
+      e.stopPropagation();
+      restartJob(j);
+    });
+  }
 
   if (TERMINAL_STATUSES.includes(j.status)) return;
 
@@ -187,6 +198,14 @@ export async function toggleCard(el, jobId) {
       state.activeStreams.delete(jobId);
     }
   })();
+}
+
+// ─── Restart job ───
+
+export function restartJob(job) {
+  state.prefillJob = job;
+  haptic('impact');
+  switchTab('new');
 }
 
 // ─── Cancel job ───
