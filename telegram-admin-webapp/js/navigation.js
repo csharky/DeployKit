@@ -139,9 +139,17 @@ function loadNewJobProfiles() {
   const btn = document.getElementById('submit-btn');
   const errDiv = document.getElementById('new-job-error');
 
+  // Consume prefill state before any async work
+  const prefill = state.prefillJob;
+  state.prefillJob = null;
+
   errDiv.style.display = 'none';
   resetEnvOverrides();
   showEnvOverridesSection(false);
+
+  // Update page title based on whether this is a restart
+  const title = document.querySelector('#new-page .page-title');
+  if (title) title.textContent = prefill ? 'Restart Job' : 'New Job';
 
   const hint = document.getElementById('new-job-profile-hint');
   hint.textContent = '';
@@ -200,6 +208,19 @@ function loadNewJobProfiles() {
         link.textContent = '+ Create new profile';
         link.addEventListener('click', navigateToCreateProfile);
         hint.appendChild(link);
+
+        // Pre-fill from restarted job
+        if (prefill) {
+          const profileExists = profiles.some(p => p.id === prefill.profileId);
+          if (profileExists) {
+            select.value = prefill.profileId;
+          } else {
+            errDiv.textContent = 'Original profile was deleted \u2014 select a new one';
+            errDiv.style.display = 'block';
+          }
+          showEnvOverridesSection(true);
+          loadFromProfile(prefill.profileSnapshot?.envVars || []);
+        }
       }
     })
     .catch(function() {
