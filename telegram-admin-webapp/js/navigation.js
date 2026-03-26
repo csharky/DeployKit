@@ -2,11 +2,13 @@ import { state } from './state.js';
 import { loadJobs } from './jobs.js';
 import { loadAgents } from './agents.js';
 import { loadProfiles, openCreateForm } from './profiles.js';
+import { loadApiKeys } from './apikeys.js';
+import { loadAuditLog } from './audit.js';
 import { api } from './api.js';
 import { haptic } from './helpers.js';
 import { showEnvOverridesSection, resetEnvOverrides, loadFromProfile } from './env-overrides.js';
 
-const SETTINGS_PAGES = new Set(['settings', 'connection', 'agents', 'profiles']);
+const SETTINGS_PAGES = new Set(['settings', 'connection', 'agents', 'profiles', 'apikeys', 'audit']);
 
 // ─── Telegram BackButton ───
 let _backHandler = null;
@@ -79,6 +81,10 @@ export function openSettingsSection(name) {
     loadAgents();
   } else if (name === 'profiles') {
     loadProfiles();
+  } else if (name === 'apikeys') {
+    loadApiKeys();
+  } else if (name === 'audit') {
+    loadAuditLog();
   } else if (name === 'connection') {
     document.getElementById('settings-url').value = state.apiUrl;
     document.getElementById('settings-key').value = state.apiKey;

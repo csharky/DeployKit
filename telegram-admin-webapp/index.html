@@ -59,6 +59,22 @@
       <span class="settings-row-hint" id="settings-profiles-hint"></span>
       <svg class="settings-row-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
     </div>
+    <div class="settings-row" id="settings-apikeys-row">
+      <div class="settings-row-icon-wrap" style="background:#8e44ad">
+        <svg class="settings-row-icon" viewBox="0 0 24 24"><path d="M12.65 10A5.99 5.99 0 007 6c-3.31 0-6 2.69-6 6s2.69 6 6 6a5.99 5.99 0 005.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+      </div>
+      <span class="settings-row-label">API Keys</span>
+      <span class="settings-row-hint" id="settings-apikeys-hint"></span>
+      <svg class="settings-row-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
+    <div class="settings-row" id="settings-audit-row">
+      <div class="settings-row-icon-wrap" style="background:#c0392b">
+        <svg class="settings-row-icon" viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+      </div>
+      <span class="settings-row-label">Audit Log</span>
+      <span class="settings-row-hint"></span>
+      <svg class="settings-row-chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>
   </div>
 </div>
 
@@ -188,6 +204,56 @@
     </div>
   </div>
 </template>
+
+<!-- API Keys page -->
+<div id="apikeys-page" class="page">
+  <button class="btn-back" id="apikeys-back-btn">← Settings</button>
+  <div class="page-title">API Keys</div>
+  <div id="apikeys-list-items"></div>
+  <button class="btn-add-row" id="add-apikey-btn">Create API Key</button>
+
+  <!-- Inline create form (hidden by default) -->
+  <div id="apikey-form" style="display:none">
+    <div class="form-section-title" style="margin-top:16px">New API Key</div>
+    <div class="form-group">
+      <label class="form-label">Name</label>
+      <input class="form-input" id="apikey-name" placeholder="e.g. CI Bot, Read-only viewer">
+    </div>
+    <div class="form-section-title">Permissions</div>
+    <div id="apikey-permissions">
+      <label class="permission-row"><input type="checkbox" value="jobs:run"> Run / cancel jobs</label>
+      <label class="permission-row"><input type="checkbox" value="jobs:read"> Read jobs &amp; agents</label>
+      <label class="permission-row"><input type="checkbox" value="profiles:read"> Read profiles</label>
+      <label class="permission-row"><input type="checkbox" value="profiles:write"> Edit profiles</label>
+      <label class="permission-row"><input type="checkbox" value="apikeys:manage"> Manage API keys &amp; audit log</label>
+    </div>
+    <div class="error-msg" id="apikey-error" style="display:none"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn" id="apikey-create-btn">Create</button>
+      <button class="btn btn-cancel" id="apikey-cancel-btn">Cancel</button>
+    </div>
+  </div>
+
+  <!-- One-time key display modal -->
+  <div id="apikey-reveal" style="display:none">
+    <div class="form-section-title" style="margin-top:16px;color:var(--tg-theme-button-color,#3390ec)">Key Created</div>
+    <p class="form-label" style="color:var(--tg-theme-hint-color,#999)">Copy this key now — it will not be shown again.</p>
+    <div style="position:relative">
+      <input class="form-input" id="apikey-reveal-value" readonly style="font-family:monospace;font-size:12px;padding-right:44px">
+      <button id="apikey-copy-btn" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:4px">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+      </button>
+    </div>
+    <button class="btn" id="apikey-reveal-done-btn" style="margin-top:12px">Done</button>
+  </div>
+</div>
+
+<!-- Audit Log page -->
+<div id="audit-page" class="page">
+  <button class="btn-back" id="audit-back-btn">← Settings</button>
+  <div class="page-title">Audit Log</div>
+  <div id="audit-list"></div>
+</div>
 
 <script type="module" src="js/app.js"></script>
 </body>

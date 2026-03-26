@@ -1,57 +1,65 @@
 using System.Text.Json;
-using StackExchange.Redis;
+using Dapper;
 
 namespace DeployKit.DeployServer;
 
 public class ProfileService
 {
-    private readonly IDatabase _redis;
+    private readonly DbConnectionFactory _db;
     private readonly ILogger<ProfileService> _logger;
 
-    private static string ProfileKey(string id) => $"deploy:profile:{id}";
-    private const string ProfilesIndex = "deploy:profiles";
-
-    public ProfileService(IConnectionMultiplexer redis, ILogger<ProfileService> logger)
+    public ProfileService(DbConnectionFactory db, ILogger<ProfileService> logger)
     {
-        _redis = redis.GetDatabase();
+        _db = db;
         _logger = logger;
     }
 
     public async Task<BuildProfile> CreateProfileAsync(string name, string workingDirectory, EnvVar[] envVars, string[] steps)
     {
         var id = Guid.NewGuid().ToString("N");
+        var now = DateTime.UtcNow.ToString("O");
         var profile = new BuildProfile(id, name, workingDirectory, envVars, steps);
-        await _redis.StringSetAsync(ProfileKey(id), JsonSerializer.Serialize(profile));
-        await _redis.SetAddAsync(ProfilesIndex, id);
+
+        await using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync("""
+            INSERT INTO profiles (id, name, working_directory, steps, env_vars, created_at, updated_at)
+            VALUES (@id, @name, @workingDirectory, @steps, @envVars, @now, @now)
+            """,
+            new
+            {
+                id,
+                name,
+                workingDirectory,
+                steps = JsonSerializer.Serialize(steps),
+                envVars = JsonSerializer.Serialize(envVars),
+                now
+            });
+
         _logger.LogInformation("Created profile {Id} name={Name}", id, name);
         return profile;
     }
 
     public async Task<BuildProfile?> GetProfileAsync(string id)
     {
-        var json = await _redis.StringGetAsync(ProfileKey(id));
-        if (json.IsNullOrEmpty) return null;
-        return JsonSerializer.Deserialize<BuildProfile>(json.ToString());
+        await using var conn = _db.CreateConnection();
+        var row = await conn.QuerySingleOrDefaultAsync(
+            "SELECT * FROM profiles WHERE id = @id", new { id });
+        return row is null ? null : MapRow(row);
     }
 
     public async Task<List<BuildProfile>> ListProfilesAsync()
     {
-        var ids = await _redis.SetMembersAsync(ProfilesIndex);
-        var profiles = new List<BuildProfile>();
-        foreach (var id in ids)
-        {
-            var profile = await GetProfileAsync(id.ToString());
-            if (profile is not null) profiles.Add(profile);
-        }
-        return profiles.OrderBy(p => p.Name).ToList();
+        await using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync("SELECT * FROM profiles ORDER BY name");
+        return rows.Select(MapRow).ToList();
     }
 
     public async Task<bool> DeleteProfileAsync(string id)
     {
-        var exists = await _redis.KeyExistsAsync(ProfileKey(id));
-        if (!exists) return false;
-        await _redis.KeyDeleteAsync(ProfileKey(id));
-        await _redis.SetRemoveAsync(ProfilesIndex, id);
+        await using var conn = _db.CreateConnection();
+        var affected = await conn.ExecuteAsync(
+            "DELETE FROM profiles WHERE id = @id", new { id });
+        if (affected == 0) return false;
         _logger.LogInformation("Deleted profile {Id}", id);
         return true;
     }
@@ -71,7 +79,27 @@ public class ProfileService
         }).ToArray();
 
         var updated = new BuildProfile(id, request.Name, request.WorkingDirectory, mergedVars, request.Steps);
-        await _redis.StringSetAsync(ProfileKey(id), JsonSerializer.Serialize(updated));
+
+        await using var conn = _db.CreateConnection();
+        await conn.ExecuteAsync("""
+            UPDATE profiles SET
+                name = @name,
+                working_directory = @workingDirectory,
+                steps = @steps,
+                env_vars = @envVars,
+                updated_at = @now
+            WHERE id = @id
+            """,
+            new
+            {
+                id,
+                name = request.Name,
+                workingDirectory = request.WorkingDirectory,
+                steps = JsonSerializer.Serialize(request.Steps),
+                envVars = JsonSerializer.Serialize(mergedVars),
+                now = DateTime.UtcNow.ToString("O")
+            });
+
         _logger.LogInformation("Updated profile {Id} name={Name}", id, request.Name);
         return updated;
     }
@@ -85,14 +113,22 @@ public class ProfileService
 
     public async Task<bool> IsNameTakenAsync(string name, string? excludeId = null)
     {
-        var ids = await _redis.SetMembersAsync(ProfilesIndex);
-        foreach (var id in ids)
-        {
-            if (id.ToString() == excludeId) continue;
-            var profile = await GetProfileAsync(id.ToString());
-            if (profile is not null && string.Equals(profile.Name, name, StringComparison.Ordinal))
-                return true;
-        }
-        return false;
+        await using var conn = _db.CreateConnection();
+        var count = await conn.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM profiles WHERE name = @name AND (@excludeId IS NULL OR id != @excludeId)",
+            new { name, excludeId });
+        return count > 0;
+    }
+
+    private static BuildProfile MapRow(dynamic row)
+    {
+        var envVars = JsonSerializer.Deserialize<EnvVar[]>((string)row.env_vars) ?? [];
+        var steps = JsonSerializer.Deserialize<string[]>((string)row.steps) ?? [];
+        return new BuildProfile(
+            (string)row.id,
+            (string)row.name,
+            (string)row.working_directory,
+            envVars,
+            steps);
     }
 }

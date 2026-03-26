@@ -1,15 +1,10 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using DeployKit.DeployServer;
 using Scalar.AspNetCore;
-using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
-
-// Redis
-var redisConnection = builder.Configuration.GetConnectionString("Redis")
-                      ?? throw new InvalidOperationException("Redis connection string not configured");
-builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConnection));
 
 // CORS
 builder.Services.AddCors(options =>
@@ -28,11 +23,21 @@ builder.Services.AddAuthentication("ApiKey")
 
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy("AdminPolicy", policy =>
-    {
-        policy.AddAuthenticationSchemes("ApiKey");
-        policy.RequireRole("Admin");
-    });
+    static void AddPermissionPolicy(AuthorizationOptions opts, string name, string permission) =>
+        opts.AddPolicy(name, policy =>
+        {
+            policy.AddAuthenticationSchemes("ApiKey");
+            policy.RequireAssertion(ctx =>
+                ctx.User.IsInRole("Admin") ||
+                ctx.User.HasClaim("permission", permission));
+        });
+
+    AddPermissionPolicy(options, "JobsRun", Permissions.JobsRun);
+    AddPermissionPolicy(options, "JobsRead", Permissions.JobsRead);
+    AddPermissionPolicy(options, "ProfilesRead", Permissions.ProfilesRead);
+    AddPermissionPolicy(options, "ProfilesWrite", Permissions.ProfilesWrite);
+    AddPermissionPolicy(options, "ApiKeysManage", Permissions.ApiKeysManage);
+
     options.AddPolicy("AgentPolicy", policy =>
     {
         policy.AddAuthenticationSchemes("ApiKey");
@@ -46,12 +51,23 @@ builder.Services.AddAuthorization(options =>
 });
 
 // Services
-builder.Services.AddSingleton<DeploymentService>();
+builder.Services.AddSingleton<DbConnectionFactory>();
+builder.Services.AddSingleton<JobQueue>();
+builder.Services.AddSingleton<ApiKeyService>();
+builder.Services.AddSingleton<AuditService>();
 builder.Services.AddSingleton<ProfileService>();
+builder.Services.AddSingleton<DeploymentService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
+
+// Initialize DB and recover pending jobs
+var db = app.Services.GetRequiredService<DbConnectionFactory>();
+await db.InitializeAsync();
+
+var deploymentService = app.Services.GetRequiredService<DeploymentService>();
+await deploymentService.RecoverPendingJobsAsync();
 
 app.MapOpenApi();
 app.MapScalarApiReference();
@@ -63,11 +79,9 @@ app.UseAuthorization();
 // Health
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
-// Admin endpoints — trigger and monitor builds
-var admin = app.MapGroup("/api/jobs")
-    .RequireAuthorization("AdminPolicy");
+// ── Jobs ──────────────────────────────────────────────────────────────────────
 
-admin.MapPost("/", async (CreateJobRequest request, DeploymentService service) =>
+app.MapPost("/api/jobs", async (CreateJobRequest request, DeploymentService service, AuditService audit, HttpContext ctx) =>
 {
     if (string.IsNullOrWhiteSpace(request.ProfileId))
         return Results.BadRequest(new { error = "ProfileId is required" });
@@ -83,29 +97,37 @@ admin.MapPost("/", async (CreateJobRequest request, DeploymentService service) =
     if (job is null)
         return Results.BadRequest(new { error = "Profile not found" });
 
-    return Results.Created($"/api/jobs/{job.JobId}", job);
-});
+    await audit.LogAsync(ctx.User.Identity?.Name ?? "unknown", "job.created",
+        JsonSerializer.Serialize(new { job.JobId, job.ProfileId }));
 
-admin.MapGet("/", async (DeploymentService service) =>
+    return Results.Created($"/api/jobs/{job.JobId}", job);
+}).RequireAuthorization("JobsRun");
+
+app.MapGet("/api/jobs", async (DeploymentService service) =>
 {
     var jobs = await service.GetRecentAsync();
     return Results.Ok(jobs);
-});
+}).RequireAuthorization("JobsRead");
 
-admin.MapGet("/{jobId}", async (string jobId, DeploymentService service) =>
+app.MapGet("/api/jobs/{jobId}", async (string jobId, DeploymentService service) =>
 {
     var job = await service.GetJobAsync(jobId);
     return job is not null ? Results.Ok(job) : Results.NotFound();
-});
+}).RequireAuthorization("JobsRead");
 
-admin.MapDelete("/{jobId}", async (string jobId, DeploymentService service) =>
+app.MapDelete("/api/jobs/{jobId}", async (string jobId, DeploymentService service, AuditService audit, HttpContext ctx) =>
 {
     var cancelled = await service.CancelAsync(jobId);
-    return cancelled ? Results.Ok(new { message = "Job cancelled" }) : Results.NotFound();
-});
+    if (!cancelled) return Results.NotFound();
 
-// Admin: stream job log deltas via SSE
-admin.MapGet("/{jobId}/stream", async (string jobId, HttpContext ctx, DeploymentService service, CancellationToken ct) =>
+    await audit.LogAsync(ctx.User.Identity?.Name ?? "unknown", "job.cancelled",
+        JsonSerializer.Serialize(new { jobId }));
+
+    return Results.Ok(new { message = "Job cancelled" });
+}).RequireAuthorization("JobsRun");
+
+// SSE: stream job log deltas
+app.MapGet("/api/jobs/{jobId}/stream", async (string jobId, HttpContext ctx, DeploymentService service, CancellationToken ct) =>
 {
     ctx.Response.Headers["Content-Type"] = "text/event-stream";
     ctx.Response.Headers["Cache-Control"] = "no-cache";
@@ -154,13 +176,11 @@ admin.MapGet("/{jobId}/stream", async (string jobId, HttpContext ctx, Deployment
         }
     }
     catch (OperationCanceledException) { /* client disconnected */ }
-});
+}).RequireAuthorization("JobsRead");
 
-// Admin endpoints — profile management
-var profiles = app.MapGroup("/api/profiles")
-    .RequireAuthorization("AdminPolicy");
+// ── Profiles ──────────────────────────────────────────────────────────────────
 
-profiles.MapPost("/", async (CreateProfileRequest req, ProfileService svc) =>
+app.MapPost("/api/profiles", async (CreateProfileRequest req, ProfileService svc, AuditService audit, HttpContext ctx) =>
 {
     if (string.IsNullOrWhiteSpace(req.Name))
         return Results.BadRequest(new { error = "Name is required" });
@@ -176,28 +196,29 @@ profiles.MapPost("/", async (CreateProfileRequest req, ProfileService svc) =>
         return Results.Json(new { error = "A profile with that name already exists" }, statusCode: 409);
 
     var profile = await svc.CreateProfileAsync(
-        req.Name,
-        req.WorkingDirectory ?? string.Empty,
-        envVars,
-        req.Steps);
-    return Results.Created($"/api/profiles/{profile.Id}", ProfileService.MaskSecrets(profile));
-});
+        req.Name, req.WorkingDirectory ?? string.Empty, envVars, req.Steps);
 
-profiles.MapGet("/", async (ProfileService svc) =>
+    await audit.LogAsync(ctx.User.Identity?.Name ?? "unknown", "profile.created",
+        JsonSerializer.Serialize(new { profile.Id, profile.Name }));
+
+    return Results.Created($"/api/profiles/{profile.Id}", ProfileService.MaskSecrets(profile));
+}).RequireAuthorization("ProfilesWrite");
+
+app.MapGet("/api/profiles", async (ProfileService svc) =>
 {
     var all = await svc.ListProfilesAsync();
     return Results.Ok(all.Select(ProfileService.MaskSecrets).ToList());
-});
+}).RequireAuthorization("ProfilesRead");
 
-profiles.MapGet("/{id}", async (string id, ProfileService svc) =>
+app.MapGet("/api/profiles/{id}", async (string id, ProfileService svc) =>
 {
     var profile = await svc.GetProfileAsync(id);
     if (profile is null)
         return Results.NotFound(new { error = "Profile not found" });
     return Results.Ok(ProfileService.MaskSecrets(profile));
-});
+}).RequireAuthorization("ProfilesRead");
 
-profiles.MapPut("/{id}", async (string id, UpdateProfileRequest req, ProfileService svc) =>
+app.MapPut("/api/profiles/{id}", async (string id, UpdateProfileRequest req, ProfileService svc, AuditService audit, HttpContext ctx) =>
 {
     if (string.IsNullOrWhiteSpace(req.Name))
         return Results.BadRequest(new { error = "Name is required" });
@@ -214,76 +235,44 @@ profiles.MapPut("/{id}", async (string id, UpdateProfileRequest req, ProfileServ
     var updated = await svc.UpdateProfileAsync(id, req);
     if (updated is null)
         return Results.NotFound(new { error = "Profile not found" });
-    return Results.Ok(ProfileService.MaskSecrets(updated));
-});
 
-profiles.MapDelete("/{id}", async (string id, ProfileService svc, DeploymentService deploySvc) =>
+    await audit.LogAsync(ctx.User.Identity?.Name ?? "unknown", "profile.updated",
+        JsonSerializer.Serialize(new { updated.Id, updated.Name }));
+
+    return Results.Ok(ProfileService.MaskSecrets(updated));
+}).RequireAuthorization("ProfilesWrite");
+
+app.MapDelete("/api/profiles/{id}", async (string id, ProfileService svc, DeploymentService deploySvc, AuditService audit, HttpContext ctx) =>
 {
     if (await deploySvc.HasActiveJobsForProfileAsync(id))
         return Results.Json(new { error = "Profile has active jobs" }, statusCode: 409);
 
+    var profile = await svc.GetProfileAsync(id);
     var deleted = await svc.DeleteProfileAsync(id);
     if (!deleted)
         return Results.NotFound(new { error = "Profile not found" });
-    return Results.Ok(new { });
-});
 
-// Admin: get status of all known agents
+    await audit.LogAsync(ctx.User.Identity?.Name ?? "unknown", "profile.deleted",
+        JsonSerializer.Serialize(new { id, name = profile?.Name }));
+
+    return Results.Ok(new { });
+}).RequireAuthorization("ProfilesWrite");
+
+// ── Agents (admin) ────────────────────────────────────────────────────────────
+
 app.MapGet("/api/agents", async (DeploymentService service) =>
 {
     var agents = await service.GetAllAgentsAsync();
     return Results.Ok(agents);
-}).RequireAuthorization("AdminPolicy");
+}).RequireAuthorization("JobsRead");
 
-// Agent endpoints — polling and status reporting
-var agent = app.MapGroup("/api/agent")
-    .RequireAuthorization("AgentPolicy");
-
-agent.MapPost("/poll", async (DeploymentService service) =>
-{
-    var job = await service.DequeueAsync();
-    return job is not null ? Results.Ok(job) : Results.NoContent();
-});
-
-agent.MapPut("/status", async (UpdateStatusRequest request, DeploymentService service, HttpContext context) =>
-{
-    // jobId comes as query param
-    var jobId = context.Request.Query["jobId"].ToString();
-    if (string.IsNullOrEmpty(jobId))
-        return Results.BadRequest(new { error = "jobId query parameter is required" });
-
-    var job = await service.UpdateStatusAsync(jobId, request.Status, request.Logs, request.Error, request.ArtifactPath);
-    return job is not null ? Results.Ok(job) : Results.NotFound();
-});
-
-agent.MapPost("/heartbeat", async (AgentHeartbeat heartbeat, DeploymentService service) =>
-{
-    await service.RecordHeartbeatAsync(heartbeat.AgentId);
-    return Results.Ok(new { message = "OK" });
-});
-
-agent.MapPost("/logs", async (AgentLogsRequest request, DeploymentService service) =>
-{
-    await service.StoreAgentLogsAsync(request.AgentId, request.Lines);
-    return Results.Ok(new { message = "OK" });
-});
-
-// Status endpoint — accessible by both admin and agent
-app.MapGet("/api/agent/alive/{agentId}", async (string agentId, DeploymentService service) =>
-{
-    var alive = await service.IsAgentAliveAsync(agentId);
-    return Results.Ok(new { agentId, alive });
-}).RequireAuthorization("AnyAuthPolicy");
-
-// Admin: read agent logs
 app.MapGet("/api/agent/{agentId}/logs", async (string agentId, int? lines, DeploymentService service) =>
 {
     var allLines = await service.GetAgentLogsAsync(agentId);
     var result = lines.HasValue ? allLines.TakeLast(lines.Value).ToArray() : allLines;
     return Results.Ok(new { agentId, lines = result });
-}).RequireAuthorization("AdminPolicy");
+}).RequireAuthorization("JobsRead");
 
-// Admin: stream agent log lines via SSE
 app.MapGet("/api/agent/{agentId}/logs/stream", async (string agentId, int? from, HttpContext ctx, DeploymentService service, CancellationToken ct) =>
 {
     ctx.Response.Headers["Content-Type"] = "text/event-stream";
@@ -312,7 +301,96 @@ app.MapGet("/api/agent/{agentId}/logs/stream", async (string agentId, int? from,
         }
     }
     catch (OperationCanceledException) { /* client disconnected */ }
-}).RequireAuthorization("AdminPolicy");
+}).RequireAuthorization("JobsRead");
+
+app.MapGet("/api/agent/alive/{agentId}", async (string agentId, DeploymentService service) =>
+{
+    var alive = await service.IsAgentAliveAsync(agentId);
+    return Results.Ok(new { agentId, alive });
+}).RequireAuthorization("AnyAuthPolicy");
+
+// ── Agent endpoints ───────────────────────────────────────────────────────────
+
+var agent = app.MapGroup("/api/agent")
+    .RequireAuthorization("AgentPolicy");
+
+agent.MapPost("/poll", async (DeploymentService service) =>
+{
+    var job = await service.DequeueAsync();
+    return job is not null ? Results.Ok(job) : Results.NoContent();
+});
+
+agent.MapPut("/status", async (UpdateStatusRequest request, DeploymentService service, HttpContext context) =>
+{
+    var jobId = context.Request.Query["jobId"].ToString();
+    if (string.IsNullOrEmpty(jobId))
+        return Results.BadRequest(new { error = "jobId query parameter is required" });
+
+    var job = await service.UpdateStatusAsync(jobId, request.Status, request.Logs, request.Error, request.ArtifactPath);
+    return job is not null ? Results.Ok(job) : Results.NotFound();
+});
+
+agent.MapPost("/heartbeat", async (AgentHeartbeat heartbeat, DeploymentService service) =>
+{
+    await service.RecordHeartbeatAsync(heartbeat.AgentId);
+    return Results.Ok(new { message = "OK" });
+});
+
+agent.MapPost("/logs", async (AgentLogsRequest request, DeploymentService service) =>
+{
+    await service.StoreAgentLogsAsync(request.AgentId, request.Lines);
+    return Results.Ok(new { message = "OK" });
+});
+
+// ── API Keys ──────────────────────────────────────────────────────────────────
+
+app.MapGet("/api/apikeys", async (ApiKeyService apiKeyService) =>
+{
+    var keys = await apiKeyService.ListAsync();
+    return Results.Ok(keys);
+}).RequireAuthorization("ApiKeysManage");
+
+app.MapPost("/api/apikeys", async (CreateApiKeyRequest request, ApiKeyService apiKeyService, AuditService audit, HttpContext ctx) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Name))
+        return Results.BadRequest(new { error = "Name is required" });
+
+    if (request.Permissions is null || request.Permissions.Length == 0)
+        return Results.BadRequest(new { error = "At least one permission is required" });
+
+    var invalid = request.Permissions.Except(Permissions.All).ToArray();
+    if (invalid.Length > 0)
+        return Results.BadRequest(new { error = $"Invalid permissions: {string.Join(", ", invalid)}" });
+
+    var created = await apiKeyService.CreateAsync(request.Name, request.Permissions);
+
+    await audit.LogAsync(ctx.User.Identity?.Name ?? "unknown", "apikey.created",
+        JsonSerializer.Serialize(new { created.Id, created.Name, created.Permissions }));
+
+    return Results.Created($"/api/apikeys/{created.Id}", created);
+}).RequireAuthorization("ApiKeysManage");
+
+app.MapDelete("/api/apikeys/{id}", async (string id, ApiKeyService apiKeyService, AuditService audit, HttpContext ctx) =>
+{
+    var keys = await apiKeyService.ListAsync();
+    var key = keys.FirstOrDefault(k => k.Id == id);
+
+    var revoked = await apiKeyService.RevokeAsync(id);
+    if (!revoked) return Results.NotFound(new { error = "API key not found or already revoked" });
+
+    await audit.LogAsync(ctx.User.Identity?.Name ?? "unknown", "apikey.revoked",
+        JsonSerializer.Serialize(new { id, name = key?.Name }));
+
+    return Results.Ok(new { message = "API key revoked" });
+}).RequireAuthorization("ApiKeysManage");
+
+// ── Audit Log ─────────────────────────────────────────────────────────────────
+
+app.MapGet("/api/audit", async (int? count, AuditService audit) =>
+{
+    var entries = await audit.GetRecentAsync(count ?? 100);
+    return Results.Ok(entries);
+}).RequireAuthorization("ApiKeysManage");
 
 app.Run();
 

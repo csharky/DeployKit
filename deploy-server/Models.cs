@@ -49,3 +49,41 @@ public record ProfileResponse(
     string WorkingDirectory,
     EnvVar[] EnvVars,
     string[] Steps);
+
+// ── API Keys ──────────────────────────────────────────────────────────────────
+
+public record ApiKeyRecord(
+    string Id,
+    string Name,
+    string KeyHash,
+    string KeyPrefix,
+    string[] Permissions,
+    DateTime CreatedAt,
+    bool Revoked);
+
+public record ApiKeyCreatedResponse(
+    string Id,
+    string Name,
+    string Key,
+    string KeyPrefix,
+    string[] Permissions,
+    DateTime CreatedAt);
+
+public record ApiKeyListItem(
+    string Id,
+    string Name,
+    string KeyPrefix,
+    string[] Permissions,
+    DateTime CreatedAt,
+    bool Revoked);
+
+public record CreateApiKeyRequest(string Name, string[] Permissions);
+
+// ── Audit ─────────────────────────────────────────────────────────────────────
+
+public record AuditEntry(
+    string Id,
+    string KeyName,
+    string Action,
+    DateTime Timestamp,
+    string? Details);
