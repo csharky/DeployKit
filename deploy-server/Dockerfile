@@ -13,9 +13,8 @@ WORKDIR /app
 
 COPY --from=build /app/publish .
 
-# Persistent data directory for SQLite database
+# Persistent data directory for SQLite database (mount Railway Volume at /data)
 RUN mkdir -p /data
-VOLUME ["/data"]
 ENV Database__Path=/data/deploy.db
 
 EXPOSE 8080
