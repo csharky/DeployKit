@@ -4,6 +4,7 @@ import { switchTab, showPage, openSettingsSection, backToSettings } from './navi
 import { api } from './api.js';
 import { haptic } from './helpers.js';
 import { getEnvOverrides, initEnvOverrides } from './env-overrides.js';
+import { initApiKeyForm } from './apikeys.js';
 
 // ─── Init ───
 
@@ -39,16 +40,21 @@ function registerListeners() {
   document.getElementById('settings-connection-row').addEventListener('click', () => openSettingsSection('connection'));
   document.getElementById('settings-agents-row').addEventListener('click', () => openSettingsSection('agents'));
   document.getElementById('settings-profiles-row').addEventListener('click', () => openSettingsSection('profiles'));
+  document.getElementById('settings-apikeys-row').addEventListener('click', () => openSettingsSection('apikeys'));
+  document.getElementById('settings-audit-row').addEventListener('click', () => openSettingsSection('audit'));
 
   document.getElementById('connection-back-btn').addEventListener('click', () => backToSettings());
   document.getElementById('agents-back-btn').addEventListener('click', () => backToSettings());
   document.getElementById('profiles-settings-back-btn').addEventListener('click', () => backToSettings());
+  document.getElementById('apikeys-back-btn').addEventListener('click', () => backToSettings());
+  document.getElementById('audit-back-btn').addEventListener('click', () => backToSettings());
 
   document.getElementById('setup-connect-btn').addEventListener('click', saveConfig);
   document.getElementById('settings-save-btn').addEventListener('click', saveSettings);
   document.getElementById('submit-btn').addEventListener('click', createJob);
 
   initEnvOverrides();
+  initApiKeyForm();
 }
 
 // ─── Config ───
