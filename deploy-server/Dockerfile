@@ -13,6 +13,11 @@ WORKDIR /app
 
 COPY --from=build /app/publish .
 
+# Persistent data directory for SQLite database
+RUN mkdir -p /data
+VOLUME ["/data"]
+ENV Database__Path=/data/deploy.db
+
 EXPOSE 8080
 ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
