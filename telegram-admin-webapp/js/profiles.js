@@ -278,10 +278,10 @@ function validateEnvVars() {
 
 function collectFormData() {
   // Sync env var values from DOM (in case input events were missed)
-  const keyInputs = document.querySelectorAll('.envvar-key');
-  const valInputs = document.querySelectorAll('.envvar-val');
-  const secretInputs = document.querySelectorAll('.envvar-secret');
-  const lockedInputs = document.querySelectorAll('.envvar-locked');
+  const keyInputs = document.querySelectorAll('#envvar-rows .envvar-key');
+  const valInputs = document.querySelectorAll('#envvar-rows .envvar-val');
+  const secretInputs = document.querySelectorAll('#envvar-rows .envvar-secret');
+  const lockedInputs = document.querySelectorAll('#envvar-rows .envvar-locked');
   envVarRows = Array.from(keyInputs).map((keyEl, i) => ({
     key: keyEl.value.trim(),
     value: valInputs[i].value,
