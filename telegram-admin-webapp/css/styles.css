@@ -88,10 +88,20 @@ body {
 }
 .card:active { opacity: 0.7; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
+.card-header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .card-profile { font-weight: 600; font-size: 15px; }
 .card-meta { font-size: 13px; color: var(--hint); margin-top: 4px; }
 .card-details { display: none; margin-top: 12px; }
 .card.expanded .card-details { display: block; }
+
+/* Restart icon button */
+.btn-restart-icon {
+  background: none; border: none; padding: 2px; cursor: pointer;
+  color: var(--hint); border-radius: 4px; line-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0.65;
+}
+.btn-restart-icon:active { opacity: 0.35; }
 
 /* Status badge */
 .badge {
