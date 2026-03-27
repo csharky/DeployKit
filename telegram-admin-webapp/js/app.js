@@ -77,6 +77,7 @@ function saveSettings() {
   storageSet('deploy_url', state.apiUrl);
   storageSet('deploy_key', state.apiKey);
   haptic('success');
+  fetchAndApplyPermissions();
   backToSettings();
 }
 
@@ -95,6 +96,8 @@ export async function fetchAndApplyPermissions() {
 function applyPermissions() {
   const p = state.permissions ?? [];
   const canRunJobs = p.includes('jobs:run');
+  const canReadJobs = p.includes('jobs:read');
+  const canReadProfiles = p.includes('profiles:read') || p.includes('profiles:write');
   const canManageKeys = p.includes('apikeys:manage');
 
   // FAB — hide if no jobs:run permission (only relevant when on jobs page)
@@ -105,6 +108,8 @@ function applyPermissions() {
   }
 
   // Settings rows — hide sections the key cannot access
+  document.getElementById('settings-agents-row').style.display = canReadJobs ? '' : 'none';
+  document.getElementById('settings-profiles-row').style.display = canReadProfiles ? '' : 'none';
   document.getElementById('settings-apikeys-row').style.display = canManageKeys ? '' : 'none';
   document.getElementById('settings-audit-row').style.display = canManageKeys ? '' : 'none';
 }
