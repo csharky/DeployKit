@@ -51,19 +51,13 @@ function createJobCard(j) {
 
   const canRunJobs = state.permissions === null || state.permissions.includes('jobs:run');
   if (TERMINAL_STATUSES.includes(j.status) && canRunJobs) {
+    card.classList.add('has-restart');
     const restartBtn = document.createElement('button');
     restartBtn.className = 'btn-restart-icon';
     restartBtn.setAttribute('aria-label', 'Restart');
     restartBtn.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>';
     restartBtn.addEventListener('click', e => { e.stopPropagation(); restartJob(j); });
-
-    // Wrap badge + restart button in a column so the icon sits under the status
-    const badge = card.querySelector('.badge');
-    const wrapper = document.createElement('div');
-    wrapper.className = 'card-header-right';
-    badge.replaceWith(wrapper);
-    wrapper.appendChild(badge);
-    wrapper.appendChild(restartBtn);
+    card.appendChild(restartBtn);
   }
 
   return card;
