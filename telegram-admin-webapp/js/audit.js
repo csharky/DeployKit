@@ -1,8 +1,9 @@
 import { api } from './api.js';
+import { renderSkeletons } from './helpers.js';
 
 export async function loadAuditLog() {
   const container = document.getElementById('audit-list');
-  container.innerHTML = '<div class="loading"><span class="spinner"></span></div>';
+  renderSkeletons(container, 'audit', 5);
 
   try {
     const entries = await api('GET', '/api/audit?count=100');

@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { api, consumeSseStream } from './api.js';
-import { esc, relTime } from './helpers.js';
+import { esc, relTime, renderSkeletons } from './helpers.js';
 
 const AGENT_LOG_LINES = 100;
 
@@ -32,6 +32,9 @@ function updateAgentCardMeta(card, a) {
 
 export async function loadAgents() {
   const el = document.getElementById('agents-list');
+  if (!el.querySelector('.card[data-agent-id]')) {
+    renderSkeletons(el, 'agent', 3);
+  }
   try {
     const agents = await api('GET', '/api/agents');
     if (!agents || agents.length === 0) {
@@ -51,7 +54,7 @@ export async function loadAgents() {
       }
     });
 
-    el.querySelectorAll('.empty, .error-msg').forEach(node => node.remove());
+    el.querySelectorAll('.empty, .error-msg, .skeleton-card').forEach(node => node.remove());
 
     let prevCard = null;
     for (const a of agents) {
