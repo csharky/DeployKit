@@ -80,7 +80,8 @@ function removeRow(idx) {
 function syncFromDom() {
   const rows = document.querySelectorAll('#env-override-rows .envvar-row');
   rows.forEach((row, i) => {
-    if (!overrideRows[i]) return;
+    if (!overrideRows[i] || overrideRows[i].isLocked) return;
+
     overrideRows[i].key = row.querySelector('.envvar-key').value;
     overrideRows[i].value = row.querySelector('.envvar-val').value;
     overrideRows[i].isSecret = row.querySelector('.envvar-secret').checked;
