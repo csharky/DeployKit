@@ -2,7 +2,7 @@ import { api } from './api.js';
 import { haptic } from './helpers.js';
 import { state } from './state.js';
 
-let envVarRows = [];  // array of { key, value, isSecret }
+let envVarRows = [];  // array of { key, value, isSecret, isLocked }
 let editingProfileId = null;  // null = create mode, string = edit mode
 
 // ─── Load profiles list ───
@@ -36,7 +36,10 @@ export function loadProfiles() {
       haptic('error');
     });
 
-  document.getElementById('add-profile-btn').onclick = () => openCreateForm();
+  const canWrite = state.permissions === null || state.permissions.includes('profiles:write');
+  const addBtn = document.getElementById('add-profile-btn');
+  addBtn.style.display = canWrite ? '' : 'none';
+  if (canWrite) addBtn.onclick = () => openCreateForm();
 }
 
 // ─── Render profile list ───
@@ -113,6 +116,10 @@ export function openCreateForm() {
   document.getElementById('profile-back-btn').onclick = () => loadProfiles();
   document.getElementById('add-envvar-btn').onclick = () => addEnvVarRow();
   document.getElementById('profile-save-btn').onclick = () => saveProfile();
+
+  const canWriteProfiles = state.permissions === null || state.permissions.includes('profiles:write');
+  document.getElementById('profile-save-btn').style.display = canWriteProfiles ? '' : 'none';
+  document.getElementById('add-envvar-btn').style.display = canWriteProfiles ? '' : 'none';
 }
 
 // ─── Open edit form ───
@@ -140,6 +147,7 @@ async function openEditForm(profileId) {
       key: v.key,
       value: v.isSecret ? '***' : v.value,
       isSecret: v.isSecret,
+      isLocked: v.isLocked || false,
     }));
     renderEnvVarRows();
 
@@ -152,6 +160,11 @@ async function openEditForm(profileId) {
     document.getElementById('add-envvar-btn').onclick = () => addEnvVarRow();
     document.getElementById('profile-save-btn').onclick = () => saveProfile();
     document.getElementById('profile-delete-btn').onclick = () => confirmDeleteProfile();
+
+    const canWrite = state.permissions === null || state.permissions.includes('profiles:write');
+    document.getElementById('profile-save-btn').style.display = canWrite ? '' : 'none';
+    document.getElementById('profile-delete-btn').style.display = canWrite ? 'block' : 'none';
+    document.getElementById('add-envvar-btn').style.display = canWrite ? '' : 'none';
   } catch (e) {
     const errEl = document.getElementById('profile-error');
     errEl.textContent = 'Failed to load profile: ' + e.message;
@@ -205,6 +218,18 @@ function renderEnvVarRows() {
     secretLabel.appendChild(checkbox);
     secretLabel.appendChild(document.createTextNode(' Secret'));
 
+    const lockLabel = document.createElement('label');
+    lockLabel.className = 'secret-label';
+    const lockCheckbox = document.createElement('input');
+    lockCheckbox.type = 'checkbox';
+    lockCheckbox.className = 'envvar-locked';
+    lockCheckbox.checked = row.isLocked;
+    lockCheckbox.addEventListener('change', e => {
+      envVarRows[i].isLocked = e.target.checked;
+    });
+    lockLabel.appendChild(lockCheckbox);
+    lockLabel.appendChild(document.createTextNode(' Lock'));
+
     const removeBtn = document.createElement('button');
     removeBtn.className = 'btn-icon';
     removeBtn.textContent = '\u00d7';
@@ -217,13 +242,14 @@ function renderEnvVarRows() {
     rowDiv.appendChild(keyInput);
     rowDiv.appendChild(valInput);
     rowDiv.appendChild(secretLabel);
+    rowDiv.appendChild(lockLabel);
     rowDiv.appendChild(removeBtn);
     container.appendChild(rowDiv);
   }
 }
 
 function addEnvVarRow() {
-  envVarRows.push({ key: '', value: '', isSecret: false });
+  envVarRows.push({ key: '', value: '', isSecret: false, isLocked: false });
   renderEnvVarRows();
   haptic('impact');
   const keys = document.querySelectorAll('.envvar-key');
@@ -261,10 +287,12 @@ function collectFormData() {
   const keyInputs = document.querySelectorAll('.envvar-key');
   const valInputs = document.querySelectorAll('.envvar-val');
   const secretInputs = document.querySelectorAll('.envvar-secret');
+  const lockedInputs = document.querySelectorAll('.envvar-locked');
   envVarRows = Array.from(keyInputs).map((keyEl, i) => ({
     key: keyEl.value.trim(),
     value: valInputs[i].value,
     isSecret: secretInputs[i].checked,
+    isLocked: lockedInputs[i]?.checked ?? false,
   }));
 
   // Parse steps from textarea
@@ -282,6 +310,7 @@ function collectFormData() {
       key: r.key,
       value: r.isSecret && r.value === '' && editingProfileId ? '***' : r.value,
       isSecret: r.isSecret,
+      isLocked: r.isLocked,
     })),
     steps,
   };

@@ -1,7 +1,8 @@
 import { haptic } from './helpers.js';
 
-// Each row: { key, value, isSecret, fromProfile }
+// Each row: { key, value, isSecret, fromProfile, isLocked }
 // fromProfile=true: came from profile template, secret with empty value = "keep as-is"
+// isLocked=true: value cannot be overridden; shown read-only, not sent to server
 let overrideRows = [];
 
 export function initEnvOverrides() {
@@ -19,6 +20,7 @@ export function loadFromProfile(envVars) {
     value: v.isSecret ? '' : v.value,   // secrets come masked — show empty
     isSecret: v.isSecret,
     fromProfile: true,
+    isLocked: v.isLocked || false,
   }));
   renderRows();
 }
@@ -35,6 +37,7 @@ export function getEnvOverrides() {
 
   const toSend = overrideRows.filter(r => {
     if (!r.key.trim()) return false;
+    if (r.isLocked) return false; // locked vars are never sent as overrides
     if (r.fromProfile && r.isSecret && r.value === '') return false; // unchanged
     return true;
   });
@@ -104,6 +107,21 @@ function renderRows() {
     valInput.type = row.isSecret ? 'password' : 'text';
     valInput.placeholder = row.fromProfile && row.isSecret ? '(unchanged)' : 'value';
     valInput.value = row.value;
+
+    if (row.isLocked) {
+      valInput.disabled = true;
+      valInput.placeholder = '(locked)';
+
+      const lockedSpan = document.createElement('span');
+      lockedSpan.className = 'secret-label';
+      lockedSpan.textContent = 'Locked';
+
+      rowDiv.appendChild(keyInput);
+      rowDiv.appendChild(valInput);
+      rowDiv.appendChild(lockedSpan);
+      container.appendChild(rowDiv);
+      continue;
+    }
 
     const secretLabel = document.createElement('label');
     secretLabel.className = 'secret-label';

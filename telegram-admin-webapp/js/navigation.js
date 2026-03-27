@@ -42,9 +42,10 @@ export function showPage(name) {
   settingsBtn.classList.toggle('hidden', isSetup);
   settingsBtn.classList.toggle('active', SETTINGS_PAGES.has(name));
 
+  const canRunJobs = state.permissions === null || state.permissions.includes('jobs:run');
   const fab = document.getElementById('fab-new');
-  fab.classList.toggle('hidden', name !== 'jobs');
-  document.getElementById('fab-gradient').classList.toggle('hidden', name !== 'jobs');
+  fab.classList.toggle('hidden', name !== 'jobs' || !canRunJobs);
+  document.getElementById('fab-gradient').classList.toggle('hidden', name !== 'jobs' || !canRunJobs);
 }
 
 export function switchTab(name) {
@@ -165,6 +166,8 @@ function loadNewJobProfiles() {
     .then(function(profiles) {
       select.textContent = '';
       hint.textContent = '';
+      const canWriteProfiles = state.permissions === null || state.permissions.includes('profiles:write');
+
       if (profiles.length === 0) {
         const emptyOpt = document.createElement('option');
         emptyOpt.value = '';
@@ -173,12 +176,14 @@ function loadNewJobProfiles() {
         select.disabled = true;
         btn.disabled = true;
 
-        const emptyBtn = document.createElement('button');
-        emptyBtn.className = 'btn';
-        emptyBtn.style.marginTop = '8px';
-        emptyBtn.textContent = '+ Create your first profile';
-        emptyBtn.addEventListener('click', navigateToCreateProfile);
-        hint.appendChild(emptyBtn);
+        if (canWriteProfiles) {
+          const emptyBtn = document.createElement('button');
+          emptyBtn.className = 'btn';
+          emptyBtn.style.marginTop = '8px';
+          emptyBtn.textContent = '+ Create your first profile';
+          emptyBtn.addEventListener('click', navigateToCreateProfile);
+          hint.appendChild(emptyBtn);
+        }
       } else {
         const promptOpt = document.createElement('option');
         promptOpt.value = '';
@@ -203,11 +208,13 @@ function loadNewJobProfiles() {
             .catch(() => {});
         });
 
-        const link = document.createElement('span');
-        link.className = 'create-profile-link';
-        link.textContent = '+ Create new profile';
-        link.addEventListener('click', navigateToCreateProfile);
-        hint.appendChild(link);
+        if (canWriteProfiles) {
+          const link = document.createElement('span');
+          link.className = 'create-profile-link';
+          link.textContent = '+ Create new profile';
+          link.addEventListener('click', navigateToCreateProfile);
+          hint.appendChild(link);
+        }
 
         // Pre-fill from restarted job
         if (prefill) {
