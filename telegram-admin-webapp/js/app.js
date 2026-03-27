@@ -125,7 +125,7 @@ async function createJob() {
 
   const btn = document.getElementById('submit-btn');
   btn.disabled = true;
-  btn.textContent = 'Creating...';
+  btn.classList.add('btn-loading');
   try {
     const body = { profileId };
     if (envOverrides.length > 0) body.envOverrides = envOverrides;
@@ -137,6 +137,6 @@ async function createJob() {
     haptic('error');
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Create Job';
+    btn.classList.remove('btn-loading');
   }
 }

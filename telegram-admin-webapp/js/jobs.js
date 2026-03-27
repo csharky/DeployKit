@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { api, consumeSseStream } from './api.js';
-import { esc, fmt, buildTime, relTime, fmtDuration, haptic, TERMINAL_STATUSES } from './helpers.js';
+import { esc, fmt, buildTime, relTime, fmtDuration, haptic, renderSkeletons, TERMINAL_STATUSES } from './helpers.js';
 import { switchTab } from './navigation.js';
 
 const REFRESH_INTERVAL = 15000;
@@ -81,6 +81,9 @@ function updateJobCardMeta(card, j) {
 
 export async function loadJobs() {
   const el = document.getElementById('jobs-list');
+  if (!el.querySelector('.card[data-job-id]')) {
+    renderSkeletons(el, 'job', 4);
+  }
   try {
     const jobs = await api('GET', '/api/jobs');
     if (!jobs || jobs.length === 0) {
@@ -101,7 +104,7 @@ export async function loadJobs() {
       }
     });
 
-    el.querySelectorAll('.empty, .error-msg').forEach(node => node.remove());
+    el.querySelectorAll('.empty, .error-msg, .skeleton-card').forEach(node => node.remove());
 
     let prevCard = null;
     for (const j of jobs) {

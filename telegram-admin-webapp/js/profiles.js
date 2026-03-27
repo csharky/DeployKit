@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { haptic } from './helpers.js';
+import { haptic, renderSkeletons } from './helpers.js';
 import { state } from './state.js';
 
 let envVarRows = [];  // array of { key, value, isSecret, isLocked }
@@ -14,13 +14,7 @@ export function loadProfiles() {
   formEl.style.display = 'none';
 
   const container = document.getElementById('profiles-list-items');
-  container.textContent = '';
-  const loadingDiv = document.createElement('div');
-  loadingDiv.className = 'loading';
-  const spinner = document.createElement('span');
-  spinner.className = 'spinner';
-  loadingDiv.appendChild(spinner);
-  container.appendChild(loadingDiv);
+  renderSkeletons(container, 'profile', 3);
 
   api('GET', '/api/profiles')
     .then(profiles => {

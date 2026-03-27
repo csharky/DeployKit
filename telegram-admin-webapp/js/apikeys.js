@@ -1,9 +1,9 @@
 import { api } from './api.js';
-import { haptic } from './helpers.js';
+import { haptic, renderSkeletons } from './helpers.js';
 
 export async function loadApiKeys() {
   const container = document.getElementById('apikeys-list-items');
-  container.innerHTML = '<div class="loading"><span class="spinner"></span></div>';
+  renderSkeletons(container, 'apikey', 3);
 
   try {
     const keys = await api('GET', '/api/apikeys');
@@ -85,7 +85,7 @@ export function initApiKeyForm() {
     if (perms.length === 0) { showError('Select at least one permission'); return; }
 
     createBtn.disabled = true;
-    createBtn.textContent = 'Creating...';
+    createBtn.classList.add('btn-loading');
     errDiv.style.display = 'none';
 
     try {
@@ -100,7 +100,7 @@ export function initApiKeyForm() {
       haptic('error');
     } finally {
       createBtn.disabled = false;
-      createBtn.textContent = 'Create';
+      createBtn.classList.remove('btn-loading');
     }
   });
 
