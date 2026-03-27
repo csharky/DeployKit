@@ -244,4 +244,41 @@ public class JobApiTests : IClassFixture<TestWebApplicationFactory>, IAsyncLifet
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("Duplicate env override key: SAME_KEY", body.GetProperty("error").GetString());
     }
+
+    // ----- Test: Locked env var cannot be overridden -----
+
+    [Fact]
+    public async Task Post_WithLockedEnvVarOverride_Returns400()
+    {
+        var envVars = new[] { new EnvVar("LOCKED_VAR", "fixed_value", false, IsLocked: true) };
+        var profileId = await CreateTestProfile("LockedVarProfile", envVars);
+
+        var overrides = new[] { new EnvVar("LOCKED_VAR", "hacked_value", false) };
+        var (response, body) = await SubmitJob(profileId, overrides);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("Env var 'LOCKED_VAR' is locked and cannot be overridden", body.GetProperty("error").GetString());
+    }
+
+    // ----- Test: Unlocked env var can still be overridden alongside a locked one -----
+
+    [Fact]
+    public async Task Post_WithUnlockedEnvVarOverride_Succeeds()
+    {
+        var envVars = new[]
+        {
+            new EnvVar("LOCKED_VAR", "fixed_value", false, IsLocked: true),
+            new EnvVar("FREE_VAR", "original", false),
+        };
+        var profileId = await CreateTestProfile("MixedLockProfile", envVars);
+
+        var overrides = new[] { new EnvVar("FREE_VAR", "overridden", false) };
+        var (response, body) = await SubmitJob(profileId, overrides);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var snapshotEnvVars = body.GetProperty("profileSnapshot")
+            .GetProperty("envVars").EnumerateArray().ToList();
+        var freeVar = snapshotEnvVars.First(e => e.GetProperty("key").GetString() == "FREE_VAR");
+        Assert.Equal("overridden", freeVar.GetProperty("value").GetString());
+    }
 }

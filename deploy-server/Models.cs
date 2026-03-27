@@ -22,7 +22,7 @@ public record AgentHeartbeat(string AgentId, DateTime Timestamp);
 
 public record AgentLogsRequest(string AgentId, string[] Lines, DateTime Timestamp);
 
-public record EnvVar(string Key, string Value, bool IsSecret);
+public record EnvVar(string Key, string Value, bool IsSecret, bool IsLocked = false);
 
 public record BuildProfile(
     string Id,

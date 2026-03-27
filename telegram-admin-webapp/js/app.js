@@ -25,6 +25,7 @@ import { initApiKeyForm } from './apikeys.js';
     showPage('setup');
   } else {
     switchTab('jobs');
+    fetchAndApplyPermissions();
   }
 
   registerListeners();
@@ -66,6 +67,7 @@ function saveConfig() {
   storageSet('deploy_url', state.apiUrl);
   storageSet('deploy_key', state.apiKey);
   switchTab('jobs');
+  fetchAndApplyPermissions();
 }
 
 function saveSettings() {
@@ -75,7 +77,41 @@ function saveSettings() {
   storageSet('deploy_url', state.apiUrl);
   storageSet('deploy_key', state.apiKey);
   haptic('success');
+  fetchAndApplyPermissions();
   backToSettings();
+}
+
+// ─── Permissions ───
+
+export async function fetchAndApplyPermissions() {
+  try {
+    const me = await api('GET', '/api/me');
+    state.permissions = me.permissions ?? [];
+  } catch (_) {
+    state.permissions = [];
+  }
+  applyPermissions();
+}
+
+function applyPermissions() {
+  const p = state.permissions ?? [];
+  const canRunJobs = p.includes('jobs:run');
+  const canReadJobs = p.includes('jobs:read');
+  const canReadProfiles = p.includes('profiles:read') || p.includes('profiles:write');
+  const canManageKeys = p.includes('apikeys:manage');
+
+  // FAB — hide if no jobs:run permission (only relevant when on jobs page)
+  const fab = document.getElementById('fab-new');
+  if (!canRunJobs) {
+    fab.classList.add('hidden');
+    document.getElementById('fab-gradient').classList.add('hidden');
+  }
+
+  // Settings rows — hide sections the key cannot access
+  document.getElementById('settings-agents-row').style.display = canReadJobs ? '' : 'none';
+  document.getElementById('settings-profiles-row').style.display = canReadProfiles ? '' : 'none';
+  document.getElementById('settings-apikeys-row').style.display = canManageKeys ? '' : 'none';
+  document.getElementById('settings-audit-row').style.display = canManageKeys ? '' : 'none';
 }
 
 // ─── Create job ───

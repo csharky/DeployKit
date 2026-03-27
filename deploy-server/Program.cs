@@ -81,7 +81,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = Dat
 
 // ── Jobs ──────────────────────────────────────────────────────────────────────
 
-app.MapPost("/api/jobs", async (CreateJobRequest request, DeploymentService service, AuditService audit, HttpContext ctx) =>
+app.MapPost("/api/jobs", async (CreateJobRequest request, DeploymentService service, ProfileService profileSvc, AuditService audit, HttpContext ctx) =>
 {
     if (string.IsNullOrWhiteSpace(request.ProfileId))
         return Results.BadRequest(new { error = "ProfileId is required" });
@@ -91,6 +91,15 @@ app.MapPost("/api/jobs", async (CreateJobRequest request, DeploymentService serv
         var dupKey = request.EnvOverrides.GroupBy(v => v.Key).FirstOrDefault(g => g.Count() > 1);
         if (dupKey is not null)
             return Results.BadRequest(new { error = $"Duplicate env override key: {dupKey.Key}" });
+
+        var profileForLockCheck = await profileSvc.GetProfileAsync(request.ProfileId);
+        if (profileForLockCheck is not null)
+        {
+            var lockedKeys = profileForLockCheck.EnvVars.Where(v => v.IsLocked).Select(v => v.Key).ToHashSet();
+            var lockedOverride = request.EnvOverrides.FirstOrDefault(ov => lockedKeys.Contains(ov.Key));
+            if (lockedOverride is not null)
+                return Results.BadRequest(new { error = $"Env var '{lockedOverride.Key}' is locked and cannot be overridden" });
+        }
     }
 
     var job = await service.EnqueueAsync(request.ProfileId, request.EnvOverrides);
@@ -257,6 +266,18 @@ app.MapDelete("/api/profiles/{id}", async (string id, ProfileService svc, Deploy
 
     return Results.Ok(new { });
 }).RequireAuthorization("ProfilesWrite");
+
+// ── Current user ──────────────────────────────────────────────────────────────
+
+app.MapGet("/api/me", (HttpContext ctx) =>
+{
+    var name = ctx.User.Identity?.Name ?? "unknown";
+    var isAdmin = ctx.User.IsInRole("Admin");
+    var permissions = isAdmin
+        ? Permissions.All
+        : ctx.User.Claims.Where(c => c.Type == "permission").Select(c => c.Value).ToArray();
+    return Results.Ok(new { name, permissions });
+}).RequireAuthorization("AnyAuthPolicy");
 
 // ── Agents (admin) ────────────────────────────────────────────────────────────
 
