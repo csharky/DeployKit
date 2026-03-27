@@ -34,9 +34,8 @@ function createJobCard(j) {
   const tpl = document.getElementById('tpl-job-card');
   const card = tpl.content.cloneNode(true).firstElementChild;
   card.dataset.jobId = j.jobId;
-  const shortId = j.jobId.slice(0, 7);
   const profileName = j.profileSnapshot?.name || j.profileId;
-  card.querySelector('.card-profile').textContent = `${shortId} [${profileName}]`;
+  card.querySelector('.card-profile').textContent = profileName;
   card.querySelector('.card-details').id = 'detail-' + j.jobId;
   updateJobCardMeta(card, j);
   card.addEventListener('click', () => toggleCard(card, j.jobId));
@@ -54,16 +53,9 @@ function createJobCard(j) {
     const restartBtn = document.createElement('button');
     restartBtn.className = 'btn-restart-icon';
     restartBtn.setAttribute('aria-label', 'Restart');
-    restartBtn.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>';
+    restartBtn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>';
     restartBtn.addEventListener('click', e => { e.stopPropagation(); restartJob(j); });
-
-    // Wrap badge + restart button in a column so the icon sits under the status
-    const badge = card.querySelector('.badge');
-    const wrapper = document.createElement('div');
-    wrapper.className = 'card-header-right';
-    badge.replaceWith(wrapper);
-    wrapper.appendChild(badge);
-    wrapper.appendChild(restartBtn);
+    card.querySelector('.card-footer').appendChild(restartBtn);
   }
 
   return card;
@@ -74,13 +66,14 @@ function updateJobCardMeta(card, j) {
   badge.className = `badge badge-${j.status}`;
   badge.textContent = j.status;
 
+  const shortId = j.jobId.slice(0, 7);
   const time = j.startedAt ? relTime(j.startedAt) : relTime(j.createdAt);
   const dur = buildTime(j);
   const meta = card.querySelector('.card-meta');
   meta.innerHTML = '';
   meta.append(
-    document.createTextNode(time),
-    ...(dur ? [document.createTextNode(' · '), Object.assign(document.createElement('span'), { className: 'build-time', textContent: dur })] : [])
+    document.createTextNode(shortId + ' \u00b7 ' + time),
+    ...(dur ? [document.createTextNode(' \u00b7 '), Object.assign(document.createElement('span'), { className: 'build-time', textContent: dur })] : [])
   );
 }
 
