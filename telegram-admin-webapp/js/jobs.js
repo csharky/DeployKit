@@ -40,6 +40,8 @@ function createJobCard(j) {
   updateJobCardMeta(card, j);
   card.addEventListener('click', () => toggleCard(card, j.jobId));
 
+  const canRunJobs = state.permissions === null || state.permissions.includes('jobs:run');
+
   if (j.status === 'pending') {
     const btn = document.createElement('button');
     btn.className = 'btn btn-cancel';
@@ -48,7 +50,14 @@ function createJobCard(j) {
     card.appendChild(btn);
   }
 
-  const canRunJobs = state.permissions === null || state.permissions.includes('jobs:run');
+  if (j.status === 'running' && canRunJobs) {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-stop';
+    btn.textContent = 'Stop';
+    btn.addEventListener('click', e => { e.stopPropagation(); cancelJob(j.jobId); });
+    card.appendChild(btn);
+  }
+
   if (TERMINAL_STATUSES.includes(j.status) && canRunJobs) {
     const restartBtn = document.createElement('button');
     restartBtn.className = 'btn-restart-icon';

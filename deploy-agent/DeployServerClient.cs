@@ -40,19 +40,24 @@ public class DeployServerClient
         }
     }
 
-    public async Task UpdateStatusAsync(string jobId, string status, string? logs = null, string? error = null, string? artifactPath = null, CancellationToken ct = default)
+    public async Task<bool> UpdateStatusAsync(string jobId, string status, string? logs = null, string? error = null, string? artifactPath = null, CancellationToken ct = default)
     {
         try
         {
             var request = new UpdateStatusRequest(status, logs, error, artifactPath);
             var response = await _http.PutAsJsonAsync($"/api/agent/status?jobId={jobId}", request, ct);
             response.EnsureSuccessStatusCode();
+            var body = await response.Content.ReadFromJsonAsync<StopResponse>(ct);
+            return body?.StopRequested ?? false;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to update job {JobId} status to {Status}", jobId, status);
+            return false;
         }
     }
+
+    private record StopResponse(bool StopRequested);
 
     public async Task HeartbeatAsync(CancellationToken ct = default)
     {

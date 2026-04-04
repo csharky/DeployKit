@@ -59,6 +59,7 @@ public class StepRunner
     {
         var logLines = new LinkedList<string>();
         var mergedEnv = BuildMergedEnvironment(snapshot.EnvVars);
+        Process? process = null;
 
         try
         {
@@ -78,7 +79,7 @@ public class StepRunner
             foreach (var kvp in mergedEnv)
                 psi.Environment[kvp.Key] = kvp.Value;
 
-            using var process = Process.Start(psi);
+            process = Process.Start(psi);
             if (process is null)
                 return (false, -1, $"Failed to start process for step: {step}");
 
@@ -95,11 +96,16 @@ public class StepRunner
         }
         catch (OperationCanceledException)
         {
+            try { process?.Kill(entireProcessTree: true); } catch { /* best effort */ }
             return (false, -1, $"Step cancelled: {step}");
         }
         catch (Exception ex)
         {
             return (false, -1, $"Step error: {step} — {ex.Message}");
+        }
+        finally
+        {
+            process?.Dispose();
         }
     }
 

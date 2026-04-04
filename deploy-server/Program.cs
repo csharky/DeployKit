@@ -348,7 +348,8 @@ agent.MapPut("/status", async (UpdateStatusRequest request, DeploymentService se
         return Results.BadRequest(new { error = "jobId query parameter is required" });
 
     var job = await service.UpdateStatusAsync(jobId, request.Status, request.Logs, request.Error, request.ArtifactPath);
-    return job is not null ? Results.Ok(job) : Results.NotFound();
+    if (job is null) return Results.NotFound();
+    return Results.Ok(new { stopRequested = job.Status == "cancelled" });
 });
 
 agent.MapPost("/heartbeat", async (AgentHeartbeat heartbeat, DeploymentService service) =>

@@ -116,6 +116,7 @@ public class Worker : BackgroundService
             }
         });
 
+        using var jobCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         using var logCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var logPushTask = Task.Run(async () =>
         {
@@ -129,9 +130,11 @@ public class Worker : BackgroundService
                     {
                         snapshot = logBuffer.ToString();
                     }
-                    if (snapshot.Length > 0)
+                    var stopRequested = await _client.UpdateStatusAsync(job.JobId, "running", snapshot.Length > 0 ? snapshot : null, ct: logCts.Token);
+                    if (stopRequested)
                     {
-                        await _client.UpdateStatusAsync(job.JobId, "running", snapshot, ct: logCts.Token);
+                        _logger.LogInformation("Stop requested for job {JobId} — cancelling", job.JobId);
+                        jobCts.Cancel();
                     }
                 }
             }
@@ -140,12 +143,20 @@ public class Worker : BackgroundService
 
         try
         {
-            var result = await _runner.RunStepsAsync(job.ProfileSnapshot, ct);
+            var result = await _runner.RunStepsAsync(job.ProfileSnapshot, jobCts.Token);
 
             string logs;
             lock (logLock)
             {
                 logs = logBuffer.ToString();
+            }
+
+            if (jobCts.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                _logger.LogInformation("Job {JobId} stopped by user", job.JobId);
+                // Status already set to cancelled by server; just push final logs
+                await _client.UpdateStatusAsync(job.JobId, "cancelled", logs, ct: ct);
+                return;
             }
 
             if (!result.Success)

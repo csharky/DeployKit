@@ -148,9 +148,10 @@ public class DeploymentService
     public async Task<bool> CancelAsync(string jobId)
     {
         var job = await GetJobAsync(jobId);
-        if (job is null || job.Status != "pending") return false;
+        if (job is null || job.Status is not ("pending" or "running")) return false;
 
-        _queue.MarkCancelled(jobId);
+        if (job.Status == "pending")
+            _queue.MarkCancelled(jobId);
 
         await using var conn = _db.CreateConnection();
         await conn.ExecuteAsync("""
